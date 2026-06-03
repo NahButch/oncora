@@ -1,0 +1,16 @@
+[package]
+name = "oncora-kg"
+description = "Biomolecular knowledge/evidence graph: schema + GraphStore (oxigraph + cozo)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+oncora-core.workspace = true
+serde.workspace = true
+async-trait.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

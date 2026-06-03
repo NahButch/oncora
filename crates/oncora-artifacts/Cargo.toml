@@ -1,0 +1,18 @@
+[package]
+name = "oncora-artifacts"
+description = "Content-addressed artifact store and run manifests for reproducible replay"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+oncora-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+async-trait.workspace = true
+blake3.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

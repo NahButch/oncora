@@ -1,0 +1,17 @@
+[package]
+name = "oncora-retrieval"
+description = "Embeddings, vector search, and hybrid (vector + graph) retrieval with rank fusion"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+oncora-core.workspace = true
+oncora-kg.workspace = true
+serde.workspace = true
+async-trait.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

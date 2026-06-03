@@ -1,0 +1,18 @@
+[package]
+name = "oncora-memory"
+description = "Agent memory architecture: five memory types with write/consolidation and hybrid read"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+oncora-core.workspace = true
+oncora-kg.workspace = true
+oncora-retrieval.workspace = true
+oncora-artifacts.workspace = true
+async-trait.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

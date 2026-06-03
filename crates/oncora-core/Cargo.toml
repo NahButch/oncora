@@ -1,0 +1,16 @@
+[package]
+name = "oncora-core"
+description = "Foundational types and provider trait boundaries for the Oncora platform"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+uuid.workspace = true

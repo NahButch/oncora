@@ -1,0 +1,18 @@
+[package]
+name = "oncora-ingest"
+description = "Multimodal ingestion pipelines: normalize, chunk, embed, index, graph (swiftide)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+oncora-core.workspace = true
+oncora-kg.workspace = true
+oncora-retrieval.workspace = true
+oncora-artifacts.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

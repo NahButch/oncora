@@ -1,0 +1,8 @@
+[package]
+name = "xtask"
+description = "Repository automation for the Oncora workspace (cargo xtask <task>)"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]

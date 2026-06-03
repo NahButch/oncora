@@ -1,0 +1,45 @@
+[workspace]
+resolver = "2"
+members = ["crates/*", "xtask"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+repository = "https://github.com/NahButch/oncora"
+authors = ["Oncora contributors"]
+
+[workspace.dependencies]
+# internal crates (dependencies point inward to oncora-core)
+oncora-core = { path = "crates/oncora-core" }
+oncora-telemetry = { path = "crates/oncora-telemetry" }
+oncora-artifacts = { path = "crates/oncora-artifacts" }
+oncora-mcp-host = { path = "crates/oncora-mcp-host" }
+oncora-kg = { path = "crates/oncora-kg" }
+oncora-retrieval = { path = "crates/oncora-retrieval" }
+oncora-ingest = { path = "crates/oncora-ingest" }
+oncora-memory = { path = "crates/oncora-memory" }
+oncora-uncertainty = { path = "crates/oncora-uncertainty" }
+oncora-agents = { path = "crates/oncora-agents" }
+oncora-eval = { path = "crates/oncora-eval" }
+oncora-api = { path = "crates/oncora-api" }
+
+# third-party (illustrative pins; verify before production — see docs/05-tech-decisions.md)
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+async-trait = "0.1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
+blake3 = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+axum = "0.8"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

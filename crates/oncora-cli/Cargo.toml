@@ -1,0 +1,21 @@
+[package]
+name = "oncora-cli"
+description = "Operator/developer CLI: run the walking-skeleton target-discovery flow and replay"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "oncora"
+path = "src/main.rs"
+
+[dependencies]
+oncora-core.workspace = true
+oncora-agents.workspace = true
+oncora-ingest.workspace = true
+oncora-telemetry.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+anyhow.workspace = true
+serde_json.workspace = true

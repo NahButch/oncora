@@ -1,0 +1,19 @@
+[package]
+name = "oncora-mcp-host"
+description = "MCP tool host/registry with audited, deterministic tool calls (rmcp)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+oncora-core.workspace = true
+oncora-telemetry.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

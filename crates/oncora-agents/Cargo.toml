@@ -1,0 +1,25 @@
+[package]
+name = "oncora-agents"
+description = "Agent runtime: planner/specialist/verifier loop and the Platform assembly"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+oncora-core.workspace = true
+oncora-memory.workspace = true
+oncora-retrieval.workspace = true
+oncora-kg.workspace = true
+oncora-mcp-host.workspace = true
+oncora-uncertainty.workspace = true
+oncora-artifacts.workspace = true
+oncora-telemetry.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

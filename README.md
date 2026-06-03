@@ -1,5 +1,9 @@
 # Oncora
 
+<p align="center">
+  <img src="site/assets/svg/hero-overview.svg" alt="Public oncology publications and multimodal data flow into the Oncora engine — ingestion, embeddings, hybrid retrieval, knowledge graph, agent memory, agent runtime and an uncertainty layer — then out to vector and graph databases, an on-prem AI model, and a cited, confidence-scored answer for the scientist." width="100%"/>
+</p>
+
 **Oncora — A Reproducible, Uncertainty-Aware Agentic Reasoning Platform for Oncology Drug Discovery.**
 
 Oncora (Oncology Reasoning Agents) is a **Rust-native, on-premise agentic AI platform** that helps scientists accelerate oncology drug discovery — novel target discovery, translational research, and clinical-trial design/matching. Autonomous and semi-autonomous reasoning agents reason across **literature, multi-omics, biomolecular knowledge graphs, and medical imaging**, reaching every domain capability through the **Model Context Protocol (MCP)**.
@@ -10,7 +14,25 @@ What makes Oncora different from a generic RAG chatbot is built into its archite
 - **Provenance on every claim** — each conclusion is traceable to its sources, tool calls, model pin, and data snapshot.
 - **Typed, calibrated uncertainty** — confidence is a first-class value that flows through the system; agents **abstain or escalate** rather than confabulate.
 
-> This repository currently contains the **architecture and technical specification** plus a buildable project outline. The Cargo workspace skeleton follows the layout in [docs/07-repo-layout.md](docs/07-repo-layout.md).
+> This repository contains the **architecture and technical specification** *and* a **compiling Cargo workspace** — the Phase-0 walking skeleton from [docs/08-roadmap.md](docs/08-roadmap.md) runs end to end. The crate layout follows [docs/07-repo-layout.md](docs/07-repo-layout.md).
+
+### Build & run the walking skeleton
+
+```bash
+cargo run --bin oncora                 # ingest a tiny corpus, ask a target-discovery
+                                       # question, print a cited, confidence-scored answer
+cargo run --bin oncora -- "Is BRAF actionable in melanoma?" BRAF
+cargo run --bin oncora-api             # HTTP API on :8080  (GET /health, /tools; POST /query)
+cargo test --workspace                 # unit tests across all crates
+cargo xtask ci                         # fmt --check + clippy -D warnings + tests
+```
+
+The thirteen `oncora-*` crates wire together behind the provider trait boundaries in
+`oncora-core` (`ModelProvider`, `VectorStore`, `GraphStore`, `MemoryStore`, `ToolHost`,
+`Calibrator`, `Verifier`, `ArtifactStore`, `EmbeddingProvider`). The walking skeleton ships
+**in-memory reference backends** so it runs with no model server or external database;
+production swaps in the real backends (vLLM/TGI, qdrant, oxigraph/cozo, redb, rmcp) behind the
+same traits — see [docs/05-tech-decisions.md](docs/05-tech-decisions.md).
 
 ### Browse the docs as a website
 

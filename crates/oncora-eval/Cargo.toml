@@ -1,0 +1,17 @@
+[package]
+name = "oncora-eval"
+description = "Benchmark harness: golden cases, scoring (accuracy/ECE/abstention), and CI gates"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+oncora-core.workspace = true
+oncora-agents.workspace = true
+oncora-uncertainty.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

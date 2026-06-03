@@ -1,0 +1,23 @@
+[package]
+name = "oncora-api"
+description = "HTTP API (axum) exposing the Oncora agent runtime over the trust boundary"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "oncora-api"
+path = "src/main.rs"
+
+[dependencies]
+oncora-core.workspace = true
+oncora-agents.workspace = true
+oncora-ingest.workspace = true
+oncora-telemetry.workspace = true
+axum.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "net", "signal"] }
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
