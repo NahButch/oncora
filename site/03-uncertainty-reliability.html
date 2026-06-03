@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Uncertainty · Oncora</title>
+<meta name="description" content="Oncora — Uncertainty"/>
+<link rel="icon" href="assets/svg/oncora-mark.svg"/>
+<link rel="stylesheet" href="assets/css/hljs-github-dark.css"/>
+<link rel="stylesheet" href="assets/css/style.css"/>
+</head>
+<body>
+<button class="menu-btn" aria-label="Menu" onclick="document.body.classList.toggle('nav-open')">☰</button>
+<div class="scrim" onclick="document.body.classList.remove('nav-open')"></div>
+<div class="layout">
+<aside class="sidebar" id="sidebar">
+  <a class="brand" href="index.html">
+    <img src="assets/svg/oncora-mark.svg" alt="Oncora"/>
+    <span>
+      <span class="name">Onc<span>ora</span></span>
+      <span class="sub">Oncology Reasoning Agents</span>
+    </span>
+  </a>
+  <nav class="nav">
+<div class="group">Start</div>
+<a class="nav-link" href="index.html"><span>Home</span></a>
+<a class="nav-link" href="00-overview.html"><span class="num">00</span><span>Overview</span></a>
+<div class="group">Architecture</div>
+<a class="nav-link" href="01-architecture.html"><span class="num">01</span><span>Architecture</span></a>
+<a class="nav-link" href="02-memory.html"><span class="num">02</span><span>Agent memory</span></a>
+<a class="nav-link active" href="03-uncertainty-reliability.html"><span class="num">03</span><span>Uncertainty</span></a>
+<a class="nav-link" href="04-knowledge-and-data.html"><span class="num">04</span><span>Knowledge & data</span></a>
+<div class="group">Engineering</div>
+<a class="nav-link" href="05-tech-decisions.html"><span class="num">05</span><span>Tech decisions</span></a>
+<a class="nav-link" href="06-eval-benchmarking.html"><span class="num">06</span><span>Eval & benchmarks</span></a>
+<a class="nav-link" href="07-repo-layout.html"><span class="num">07</span><span>Repo layout</span></a>
+<a class="nav-link" href="08-roadmap.html"><span class="num">08</span><span>Roadmap & ops</span></a>
+  </nav>
+  <div class="foot">
+    Rust-native · on-prem · MCP<br/>
+    <a href="https://github.com/NahButch/oncora">github.com/NahButch/oncora</a><br/>
+    <span style="color:#475569">Built 2026-06-03</span>
+  </div>
+</aside>
+<main class="main">
+<div class="page-banner"><img src="assets/svg/banner-uncertainty.svg" alt="Uncertainty illustration"/></div>
+<article class="content">
+<h1 id="03-robustness-uncertainty-reliability">03 — Robustness &amp; Uncertainty / Reliability<a class="headerlink" href="#03-robustness-uncertainty-reliability" title="Permanent link">#</a></h1>
+<blockquote>
+<p>Pillar 3 of Oncora: <strong>Robustness &amp; uncertainty</strong> — typed calibrated confidence; abstain or escalate over confabulate.
+Authoritative decisions live in the internal design canon. This document is the spec for the <code>oncora-uncertainty</code> crate and its contract with <code>oncora-agents</code>, <code>oncora-core</code>, and <code>oncora-eval</code>.</p>
+</blockquote>
+<p>Related: <a href="00-overview.html">00 overview</a> · <a href="01-architecture.html">01 architecture</a> · <a href="02-memory.html">02 memory</a> · <a href="04-knowledge-and-data.html">04 knowledge-and-data</a> · <a href="05-tech-decisions.html">05 tech-decisions</a> · <a href="06-eval-benchmarking.html">06 eval-benchmarking</a> · <a href="07-repo-layout.html">07 repo-layout</a></p>
+<hr />
+<h2 id="1-thesis">1. Thesis<a class="headerlink" href="#1-thesis" title="Permanent link">#</a></h2>
+<p>In oncology drug discovery a confident wrong answer is worse than no answer. A fabricated resistance mechanism, a miscited trial endpoint, or an invented dosing calculation can derail a program or harm a patient. Oncora therefore treats <strong>uncertainty as a typed, first-class value</strong> that is produced, propagated, and acted upon — not a soft afterthought bolted onto a logit.</p>
+<p>Three commitments follow, and they are non-negotiable:</p>
+<ol>
+<li><strong>Every claim carries confidence and provenance.</strong> A bare assertion with no <code>Confidence</code> and no <code>Provenance</code> is a type error in the pipeline, not a stylistic lapse. Claims without grounding never reach the responder.</li>
+<li><strong>The system can decline.</strong> The terminal act of reasoning is a <code>Verdict</code>, and <code>Abstain</code> and <code>Escalate</code> are first-class outcomes ranked above a low-confidence <code>Accept</code>. The platform would rather say "I do not know — escalating to a human reviewer" than confabulate.</li>
+<li><strong>Confidence is calibrated, not vibes.</strong> A reported <code>Confidence(0.9)</code> must mean the claim is right roughly 90% of the time on held-out data. Calibration is measured (ECE), enforced (post-hoc calibrators), and re-checked on a cadence.</li>
+</ol>
+<p>This pillar is what lets Oncora make the reliability claims in <a href="06-eval-benchmarking.html">06 eval-benchmarking</a>: not just "more accurate," but <strong>knows when it is likely wrong</strong> and acts accordingly.</p>
+<hr />
+<h2 id="2-typed-confidence-model">2. Typed confidence model<a class="headerlink" href="#2-typed-confidence-model" title="Permanent link">#</a></h2>
+<p>The canonical types live in <code>oncora-core</code> so that every crate speaks the same language. <code>oncora-uncertainty</code> consumes and produces them; <code>oncora-agents</code> routes on them; <code>oncora-eval</code> measures them.</p>
+<pre class="highlight"><code class="language-rust">// oncora-core::uncertainty
+
+use serde::{Deserialize, Serialize};
+
+/// Calibrated probability in [0,1]. Construction is fallible so an
+/// out-of-range value can never silently propagate.
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Confidence(f64);
+
+impl Confidence {
+    pub fn new(p: f64) -&gt; Result&lt;Self, UncertaintyError&gt; {
+        if (0.0..=1.0).contains(&amp;p) {
+            Ok(Self(p))
+        } else {
+            Err(UncertaintyError::OutOfRange(p))
+        }
+    }
+    pub fn get(self) -&gt; f64 { self.0 }
+}
+
+/// How a Confidence was post-hoc calibrated. Travels with the value so
+/// downstream consumers know what they are trusting.
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum CalibrationMethod {
+    Raw,              // uncalibrated model score — not allowed past the scorer
+    TemperatureScaled,
+    Isotonic,
+    Conformal,        // confidence implied by a calibrated prediction set
+}
+
+/// Where a claim's support came from. Reproducibility hinges on this:
+/// every field is enough to replay the decision.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Provenance {
+    pub sources: Vec&lt;SourceRef&gt;,     // retrieved docs / KG nodes / datasets
+    pub tool_calls: Vec&lt;ToolCallId&gt;, // deterministic, audited MCP calls
+    pub model: ModelPin,             // pinned weights + decoding params
+    pub snapshot: SnapshotId,        // content-addressed data snapshot (BLAKE3)
+}
+
+/// Directional evidence for or against a claim.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Evidence {
+    pub claim: ClaimId,
+    pub support: Vec&lt;EvidenceItem&gt;,       // entailing sources / agreeing oracles
+    pub contradiction: Vec&lt;EvidenceItem&gt;, // refuting sources / disagreeing oracles
+    pub confidence: Confidence,
+    pub method: CalibrationMethod,
+    pub provenance: Provenance,
+}
+
+/// A single piece of evidence with a per-item NLI / agreement strength.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EvidenceItem {
+    pub source: SourceRef,
+    pub strength: f64,        // e.g. NLI entailment prob, or oracle agreement
+    pub relation: Relation,   // Entails | Contradicts | Neutral
+}
+
+/// Decomposed uncertainty so the policy can act on *why* we are unsure.
+#[derive(Copy, Clone, Debug, Default, Serialize, Deserialize)]
+pub struct UncertaintySources {
+    pub aleatoric: f64,  // irreducible data noise (assay variance, label noise)
+    pub epistemic: f64,  // model / knowledge gaps (reducible with more evidence)
+    pub retrieval: f64,  // corpus / KG coverage gaps
+    pub tool: f64,       // oracle disagreement / calculator domain errors
+}
+
+/// Terminal outcome of reasoning over a claim. Abstain/Escalate are
+/// first-class, not failure modes.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum Verdict {
+    Accept { confidence: Confidence },
+    Abstain { reason: AbstainReason },
+    Escalate { to: EscalationTarget, reason: String },
+}
+
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+pub enum EscalationTarget { HumanReviewer, SpecialistAgent }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum AbstainReason {
+    LowCalibratedConfidence { conf: f64, threshold: f64 },
+    ConformalSetTooLarge { size: usize, max: usize },
+    OracleDisagreement { detail: String },
+    UngroundedClaim,          // no entailing source for an asserted fact
+    InsufficientRetrieval,    // retrieval coverage below floor
+}</code></pre>
+<p>Design notes:</p>
+<ul>
+<li><code>Confidence::new</code> is fallible by construction; there is no <code>From&lt;f64&gt;</code>. An out-of-range probability is a bug we want to surface, not absorb.</li>
+<li><code>CalibrationMethod::Raw</code> is representable but <strong>rejected by the scorer</strong> — the uncertainty scorer refuses to emit an <code>Accept</code> whose confidence is still <code>Raw</code>. This is enforced in code, not by convention.</li>
+<li><code>UncertaintySources</code> is a decomposition, not a single scalar, because the <strong>policy routes differently</strong> on the source: high <em>epistemic</em> uncertainty escalates to a specialist (more evidence may help); high <em>aleatoric</em> uncertainty often abstains (more evidence will not help).</li>
+<li><code>Provenance</code> is exactly the canon definition and is the same struct used by <a href="02-memory.html">02 memory</a> on every memory write — uncertainty and memory share one provenance type.</li>
+</ul>
+<hr />
+<h2 id="3-where-uncertainty-comes-from">3. Where uncertainty comes from<a class="headerlink" href="#3-where-uncertainty-comes-from" title="Permanent link">#</a></h2>
+<p>Each <code>UncertaintySources</code> field is estimated by a distinct mechanism. The scorer fuses them.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Source</th>
+<th>What it captures</th>
+<th>How it is estimated</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Aleatoric</strong></td>
+<td>Irreducible noise in the underlying data</td>
+<td>Variance baked into the data snapshot — assay error bars, label disagreement in golden sets, reported CIs on trial endpoints. Propagated from <code>oncora-ingest</code> as metadata on <code>SourceRef</code>.</td>
+</tr>
+<tr>
+<td><strong>Epistemic</strong></td>
+<td>Model / knowledge gaps</td>
+<td>Spread across self-consistency samples and across the ensemble. Wide disagreement among samples that all draw on the same evidence implies the model is guessing.</td>
+</tr>
+<tr>
+<td><strong>Retrieval</strong></td>
+<td>Corpus / KG coverage gaps</td>
+<td>Retrieval-side signals from <code>oncora-retrieval</code>: top-k similarity floor, number of distinct corroborating sources, KG node degree for the entity, and whether any retrieved source actually entails the claim.</td>
+</tr>
+<tr>
+<td><strong>Tool</strong></td>
+<td>Oracle disagreement / out-of-domain calculators</td>
+<td>Disagreement between the LLM-proposed answer and deterministic oracles<br/>+ calculators flagging inputs outside their validated domain.</td>
+</tr>
+</tbody>
+</table></div>
+<p>The decomposition is what makes the abstention policy explainable: an abstention log says <em>"abstained: retrieval=0.7 — only 1 corroborating source, KG entity degree 0"</em> rather than an opaque "low confidence."</p>
+<hr />
+<h2 id="4-methods">4. Methods<a class="headerlink" href="#4-methods" title="Permanent link">#</a></h2>
+<p>These are the estimators <code>oncora-uncertainty</code> runs. They are deliberately layered: cheap signals first, expensive grounding only when cheaper signals are inconclusive.</p>
+<h3 id="41-self-consistency-n-samples">4.1 Self-consistency (N samples)<a class="headerlink" href="#41-self-consistency-n-samples" title="Permanent link">#</a></h3>
+<p>Sample the same prompt N times at temperature &gt; 0 against the same <code>ModelPin</code>, then measure agreement on the extracted answer.</p>
+<ul>
+<li><strong>Signal:</strong> the fraction agreeing on the modal answer maps to an epistemic estimate; entropy over distinct answers is the raw uncertainty.</li>
+<li><strong>Implementation:</strong> <code>oncora-agents</code> issues N concurrent generations via the <code>ModelProvider</code> trait (backed by <code>async-openai</code> → on-prem vLLM/TGI, or <code>mistral.rs</code> local). Answer extraction + clustering lives in <code>oncora-uncertainty::self_consistency</code>. Concurrency is semaphore-limited per the runtime rules in <a href="01-architecture.html">01 architecture</a>.</li>
+<li><strong>Cost control:</strong> N is per-task-class config; trivial lookups use N=1, high-stakes claims use N=5–9.</li>
+</ul>
+<h3 id="42-ensembles-multi-model-multi-prompt">4.2 Ensembles (multi-model / multi-prompt)<a class="headerlink" href="#42-ensembles-multi-model-multi-prompt" title="Permanent link">#</a></h3>
+<p>Run the claim through structurally different reasoners — different models (e.g. a local <code>mistral.rs</code> model + an on-prem vLLM-served model) and/or different prompt framings — and measure cross-reasoner agreement.</p>
+<ul>
+<li><strong>Signal:</strong> correlated errors are rarer across genuinely different models, so ensemble disagreement is a stronger epistemic signal than self-consistency alone.</li>
+<li><strong>Implementation:</strong> <code>oncora-uncertainty::ensemble</code> dispatches over a <code>Vec&lt;Box&lt;dyn ModelProvider&gt;&gt;</code> and a prompt-variant set; agreement is computed with the same answer-clustering used by self-consistency.</li>
+</ul>
+<h3 id="43-deterministic-oracle-grounding">4.3 Deterministic oracle grounding<a class="headerlink" href="#43-deterministic-oracle-grounding" title="Permanent link">#</a></h3>
+<p>The differentiator. Wherever a claim can be checked by something <strong>exact</strong>, we check it and treat the oracle as ground truth.</p>
+<ul>
+<li><strong>Oracles:</strong> clinical calculators (dose adjustment, BSA, creatinine clearance, response criteria) and the <strong>knowledge graph</strong> (<code>oxigraph</code> ontology facts + <code>cozo</code> evidence graph) per <a href="04-knowledge-and-data.html">04 knowledge-and-data</a>.</li>
+<li><strong>Mechanism:</strong> oracles are exposed as <strong>MCP tools</strong> via <code>rmcp</code> through <code>oncora-mcp-host</code>. Tool calls are deterministic and audited (recorded to episodic memory + the provenance ledger). The scorer compares the LLM answer to the oracle answer; a mismatch drives <code>UncertaintySources.tool</code> toward 1.0 and can force <code>Abstain { OracleDisagreement }</code> regardless of how confident the model sounded.</li>
+<li><strong>Why it matters:</strong> a calculator does not hallucinate. Grounding the verifiable subset of every answer in deterministic computation collapses a large class of confabulations to zero.</li>
+</ul>
+<h3 id="44-conformal-prediction">4.4 Conformal prediction<a class="headerlink" href="#44-conformal-prediction" title="Permanent link">#</a></h3>
+<p>For classification-style claims (e.g. "which resistance class," "responder vs non-responder," candidate target ranking) Oncora emits <strong>set-valued outputs with a distribution-free coverage guarantee</strong>.</p>
+<ul>
+<li><strong>Guarantee:</strong> given a calibration set and a target error rate α, split-conformal prediction yields a prediction set that contains the true label with probability ≥ 1−α — <strong>without assuming the model is calibrated or the data is Gaussian</strong>, requiring only exchangeability of calibration and test data.</li>
+<li><strong>Abstention link:</strong> set <strong>size</strong> is the abstention signal. A singleton set is a confident answer; a large set means "the data does not separate these options" → abstain or escalate. This is more honest than thresholding a softmax.</li>
+<li><strong>Implementation:</strong> <code>oncora-uncertainty::conformal</code> computes nonconformity scores on a held-out calibration split (sourced from the <a href="06-eval-benchmarking.html">06 eval-benchmarking</a> harness), derives the quantile threshold, and constructs sets at inference. Pure Rust; no external solver. Underlying classifier scores come from ONNX models run via <code>ort</code> (the canon fallback for local inference is <code>ort</code>, used here for classifiers/calibrators) or from the model's own answer distribution.</li>
+</ul>
+<h3 id="45-ece-calibration-measurement">4.5 ECE — calibration measurement<a class="headerlink" href="#45-ece-calibration-measurement" title="Permanent link">#</a></h3>
+<p><strong>Expected Calibration Error</strong> is the metric for "does <code>Confidence(0.9)</code> mean 90%."</p>
+<ul>
+<li><strong>Computation:</strong> bin predictions by confidence, compare per-bin mean confidence to per-bin empirical accuracy, weight by bin population. <code>oncora-uncertainty::ece</code> computes both ECE and reliability-diagram data.</li>
+<li><strong>Role:</strong> ECE is a <strong>gate</strong>, not just a dashboard number. <a href="06-eval-benchmarking.html">06 eval-benchmarking</a> fails CI if post-calibration ECE on the golden set exceeds the per-task-class budget. ECE also triggers recalibration (§7).</li>
+</ul>
+<h3 id="46-citation-grounding-nli-entailment">4.6 Citation-grounding / NLI entailment<a class="headerlink" href="#46-citation-grounding-nli-entailment" title="Permanent link">#</a></h3>
+<p>To catch hallucination in <em>generative</em> claims, every asserted fact must be <strong>entailed by a retrieved source</strong>.</p>
+<ul>
+<li><strong>Mechanism:</strong> for each atomic claim, run a Natural Language Inference model (claim vs each retrieved passage). Entailment → support; contradiction → recorded in <code>Evidence.contradiction</code>; all-neutral → the claim is <strong>ungrounded</strong> → <code>Abstain { UngroundedClaim }</code>.</li>
+<li><strong>Implementation:</strong> the NLI model is an ONNX cross-encoder served through <code>ort</code> behind the <code>Verifier</code> trait. Entailment probabilities populate <code>EvidenceItem.strength</code>. This is what turns "the model said it" into "a pinned source supports it."</li>
+</ul>
+<hr />
+<h2 id="5-verifier-agents">5. Verifier agents<a class="headerlink" href="#5-verifier-agents" title="Permanent link">#</a></h2>
+<p>Verifiers sit between the domain specialists and the uncertainty scorer in the canonical topology:</p>
+<p><strong>Planner → Domain Specialists → Verifier → Uncertainty Scorer → Responder.</strong></p>
+<p>Verifiers do <strong>not</strong> generate answers; they adjudicate the specialists' claims. Each implements the <code>Verifier</code> trait (<code>oncora-core</code>), and <code>oncora-agents</code> runs the relevant set per claim.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Verifier</th>
+<th>Checks</th>
+<th>Output into the scorer</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Citation verifier</strong></td>
+<td>Every atomic claim is entailed by ≥1 retrieved, pinned source (NLI, §4.6)</td>
+<td><code>EvidenceItem</code>s with entailment strengths; flags ungrounded claims</td>
+</tr>
+<tr>
+<td><strong>Oracle verifier</strong></td>
+<td>LLM answer matches deterministic calculator / KG result (§4.3)</td>
+<td>Agreement bit + magnitude → <code>UncertaintySources.tool</code></td>
+</tr>
+<tr>
+<td><strong>Consistency verifier</strong></td>
+<td>Self-consistency + ensemble agreement (§4.1–4.2)</td>
+<td>Agreement fraction / answer entropy → epistemic</td>
+</tr>
+<tr>
+<td><strong>Contradiction verifier</strong></td>
+<td>Claim does not contradict high-authority KG facts or prior accepted evidence in memory</td>
+<td>Contradiction list → can force abstain</td>
+</tr>
+<tr>
+<td><strong>Schema / unit verifier</strong></td>
+<td>Numeric claims carry units; values within plausible physiological ranges</td>
+<td>Hard reject of malformed claims before scoring</td>
+</tr>
+</tbody>
+</table></div>
+<p>The <strong>uncertainty scorer</strong> is the single point that fuses verifier outputs into the typed model: it assembles <code>Evidence</code>, decomposes <code>UncertaintySources</code>, applies the calibrator (§6) to produce a final <code>Confidence</code> + <code>CalibrationMethod</code>, and hands the policy (§8) what it needs to choose a <code>Verdict</code>. The scorer is the only component allowed to emit <code>Accept</code>.</p>
+<hr />
+<h2 id="6-calibration">6. Calibration<a class="headerlink" href="#6-calibration" title="Permanent link">#</a></h2>
+<p>Raw model scores are systematically overconfident. Oncora applies <strong>post-hoc calibration</strong> behind a trait so the method is swappable per task class.</p>
+<pre class="highlight"><code class="language-rust">// oncora-core::traits
+
+pub trait Calibrator: Send + Sync {
+    /// Fit on held-out (raw_score, correct?) pairs from the eval harness.
+    fn fit(&amp;mut self, samples: &amp;[CalibrationSample]) -&gt; Result&lt;(), UncertaintyError&gt;;
+
+    /// Map a raw model score to a calibrated Confidence.
+    fn calibrate(&amp;self, raw: f64) -&gt; Confidence;
+
+    fn method(&amp;self) -&gt; CalibrationMethod;
+}</code></pre>
+<ul>
+<li><strong>Temperature scaling</strong> (<code>CalibrationMethod::TemperatureScaled</code>): single-parameter logit scaling; cheap, preserves ranking, good default for well-behaved classifiers.</li>
+<li><strong>Isotonic regression</strong> (<code>CalibrationMethod::Isotonic</code>): non-parametric monotone fit; used when reliability curves are non-sigmoid. More flexible, needs more calibration data.</li>
+<li><strong>Conformal</strong> (<code>CalibrationMethod::Conformal</code>): the set-based route of §4.4 when set-valued output is appropriate.</li>
+</ul>
+<p><strong>Where calibration data comes from:</strong> the <a href="06-eval-benchmarking.html">06 eval-benchmarking</a> harness owns the golden/calibration splits. <code>oncora-eval</code> produces <code>CalibrationSample</code>s of <code>(raw_score, was_correct, task_class, snapshot)</code>; <code>oncora-uncertainty</code> fits per-task-class calibrators on those. Calibrators are content-addressed artifacts (BLAKE3) tied to a <code>ModelPin</code> + <code>SnapshotId</code>, so a calibrated confidence is reproducible.</p>
+<p><strong>Recalibration cadence:</strong>
+- On any <code>ModelPin</code> change (new weights / decoding params) — mandatory before promotion.
+- On any data <code>SnapshotId</code> change affecting a task class.
+- On scheduled monitoring when measured ECE on rolling production-shadow evals exceeds the task-class budget (drift).
+- Quarterly minimum even if nothing has tripped, to catch slow distribution shift.</p>
+<hr />
+<h2 id="7-abstention-escalation-policy">7. Abstention / escalation policy<a class="headerlink" href="#7-abstention-escalation-policy" title="Permanent link">#</a></h2>
+<p>The policy is a pure function of typed inputs and is <strong>configurable per task class</strong> (a "literature summary" tolerates more than a "dose recommendation"). Every non-Accept verdict is logged with its reason to episodic memory + the provenance ledger.</p>
+<p>Inputs: calibrated <code>Confidence</code>, conformal set size, oracle agreement, retrieval coverage, NLI grounding, and the <code>UncertaintySources</code> decomposition.</p>
+<h3 id="decision-table">Decision table<a class="headerlink" href="#decision-table" title="Permanent link">#</a></h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Condition</th>
+<th>Verdict</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Oracle disagreement on a verifiable sub-claim</td>
+<td><code>Abstain</code> / <code>Escalate</code></td>
+<td>Trust the oracle; never override a calculator/KG with prose. Escalate to specialist if recoverable.</td>
+</tr>
+<tr>
+<td>Claim has no entailing source<br/>NLI all-neutral</td>
+<td><code>Abstain { UngroundedClaim }</code></td>
+<td>Drop the claim or escalate to retrieve more; never assert ungrounded.</td>
+</tr>
+<tr>
+<td>Conformal set size &gt; task-class max</td>
+<td><code>Abstain { ConformalSetTooLarge }</code></td>
+<td>Data does not separate the options; return the set, do not pick.</td>
+</tr>
+<tr>
+<td>Calibrated confidence ≥ accept-threshold AND grounded AND oracle-agree AND set is singleton</td>
+<td><code>Accept</code></td>
+<td>Emit claim with <code>Confidence</code> + <code>Provenance</code>.</td>
+</tr>
+<tr>
+<td>Confidence in escalate-band AND epistemic-dominant</td>
+<td><code>Escalate { SpecialistAgent }</code></td>
+<td>More targeted evidence may resolve it; route to domain specialist.</td>
+</tr>
+<tr>
+<td>Confidence below abstain-floor AND aleatoric-dominant</td>
+<td><code>Abstain { LowCalibratedConfidence }</code></td>
+<td>Irreducible noise; more work will not help.</td>
+</tr>
+<tr>
+<td>Confidence below abstain-floor AND high-stakes task class</td>
+<td><code>Escalate { HumanReviewer }</code></td>
+<td>Defer to a human; log full evidence bundle.</td>
+</tr>
+<tr>
+<td>Retrieval coverage below floor</td>
+<td><code>Abstain { InsufficientRetrieval }</code></td>
+<td>Corpus/KG gap; flag for ingestion backfill.</td>
+</tr>
+</tbody>
+</table></div>
+<p>Thresholds (<code>accept</code>, <code>escalate-band</code>, <code>abstain-floor</code>, <code>conformal-max</code>, <code>retrieval-floor</code>) are <code>figment</code>/<code>config</code>-layered values keyed by task class and validated at load. Defaults are conservative; high-stakes classes bias toward escalation.</p>
+<hr />
+<h2 id="8-the-uncertainty-verification-loop">8. The uncertainty &amp; verification loop<a class="headerlink" href="#8-the-uncertainty-verification-loop" title="Permanent link">#</a></h2>
+<pre class="mermaid">stateDiagram-v2
+    [*] --&gt; Reason
+    Reason --&gt; Sampling : draft claims
+    Sampling --&gt; Grounding : agreement signal
+    Grounding --&gt; Calibrate : evidence assembled
+    Calibrate --&gt; Decide : calibrated confidence
+
+    state Sampling {
+        [*] --&gt; SelfConsistency
+        SelfConsistency --&gt; Ensemble
+        Ensemble --&gt; [*]
+    }
+    state Grounding {
+        [*] --&gt; OracleCheck
+        OracleCheck --&gt; NLIEntailment
+        NLIEntailment --&gt; ConformalSet
+        ConformalSet --&gt; [*]
+    }
+
+    state Decide &lt;&lt;choice&gt;&gt;
+    Decide --&gt; Accept : grounded&lt;br/&gt;high conf&lt;br/&gt;singleton set
+    Decide --&gt; Abstain : ungrounded or&lt;br/&gt;noisy or&lt;br/&gt;set too large
+    Decide --&gt; Escalate : epistemic gap or&lt;br/&gt;high stakes
+
+    Escalate --&gt; Reason : specialist adds evidence
+    Accept --&gt; [*]
+    Abstain --&gt; [*]</pre>
+<p>The <code>Escalate → Reason</code> edge to a specialist is bounded by the per-run <code>CancellationToken</code> and a max-iteration cap; it is not an open loop.</p>
+<h2 id="9-confidence-provenance-propagation">9. Confidence + Provenance propagation<a class="headerlink" href="#9-confidence-provenance-propagation" title="Permanent link">#</a></h2>
+<p>Confidence and provenance attach at claim creation and ride the claim all the way to the response. Aggregation is conservative: a response is only as confident as its weakest load-bearing claim.</p>
+<pre class="mermaid">flowchart TD
+    SRC[&quot;Retrieved source + KG node&quot;] --&gt; CLAIM[&quot;Atomic claim&quot;]
+    TOOL[&quot;Oracle / MCP tool call&quot;] --&gt; CLAIM
+    CLAIM --&gt; EV[&quot;Evidence&lt;br/&gt;support + contradiction&quot;]
+    EV --&gt; SCORE[&quot;Uncertainty scorer&quot;]
+    CAL[&quot;Calibrator&lt;br/&gt;per task class&quot;] --&gt; SCORE
+    SCORE --&gt; TAGGED[&quot;Claim + Confidence + Provenance&quot;]
+    TAGGED --&gt; POLICY{&quot;Verdict policy&quot;}
+    POLICY --&gt;|Accept| AGG[&quot;Response assembler&lt;br/&gt;min-confidence aggregation&quot;]
+    POLICY --&gt;|Abstain| LOG[&quot;Abstention log&lt;br/&gt;reason + evidence&quot;]
+    POLICY --&gt;|Escalate| ESC[&quot;Specialist or human&quot;]
+    AGG --&gt; RESP[&quot;Final response&lt;br/&gt;per-claim confidence + citations&quot;]
+    LOG --&gt; RESP
+    ESC --&gt; RESP</pre>
+<p>Every accepted claim in the final response renders with its <code>Confidence</code> and a citation trail back to <code>SourceRef</code>s and <code>ToolCallId</code>s. Abstained/escalated claims are surfaced explicitly — the user always sees what the system declined to assert and why.</p>
+<hr />
+<h2 id="10-reliability-engineering">10. Reliability engineering<a class="headerlink" href="#10-reliability-engineering" title="Permanent link">#</a></h2>
+<p>How this pillar makes agents reliable, and how it ties to benchmarking:</p>
+<ul>
+<li><strong>No silent confabulation.</strong> Ungrounded or oracle-contradicted claims cannot reach the user as <code>Accept</code>. The most damaging failure mode in a clinical-adjacent system is structurally removed.</li>
+<li><strong>Calibrated trust.</strong> A downstream scientist (or another agent's memory write) can rationally threshold on <code>Confidence</code> because it is calibrated and ECE-gated. Trust is quantified, not assumed.</li>
+<li><strong>Distribution-free guarantees where it counts.</strong> Conformal sets give a coverage guarantee that holds without distributional assumptions — robust under the messy, shifting data of drug discovery.</li>
+<li><strong>Deterministic auditability.</strong> Every verdict, oracle call, and abstention is recorded with <code>Provenance</code> to episodic memory + the provenance ledger, and is replayable from pinned models + content-addressed snapshots. A reviewer can reconstruct exactly why the system said what it said.</li>
+<li><strong>Reproducible reliability claims.</strong> Because calibrators, golden sets, and snapshots are content-addressed and pinned, the reliability numbers are reproducible enough to publish — the explicit bar in pillar 4.</li>
+</ul>
+<p><strong>Tie to <a href="06-eval-benchmarking.html">06 eval-benchmarking</a>:</strong> <code>oncora-eval</code> is both the <strong>source of calibration data</strong> and the <strong>enforcement point</strong>. It owns golden/calibration splits, computes ECE, conformal coverage, abstention precision/recall, and <em>selective accuracy</em> (accuracy on the non-abstained subset). CI gates on: post-calibration ECE ≤ budget, conformal empirical coverage ≥ 1−α, and selective accuracy ≥ baseline. A regression in any of these blocks promotion. Reliability is thus a tested, gated property — not a claim.</p>
+<hr />
+<h2 id="11-risks-what-to-verify">11. Risks &amp; what to verify<a class="headerlink" href="#11-risks-what-to-verify" title="Permanent link">#</a></h2>
+<ul>
+<li><strong>Conformal exchangeability assumption.</strong> The coverage guarantee assumes calibration and test data are exchangeable. Under temporal drift (new trials, new assays) this can break. <em>Verify:</em> monitor empirical coverage on rolling shadow evals; consider Mondrian/group-conditional conformal per task class; re-split on snapshot change.</li>
+<li><strong>Calibration drift.</strong> A calibrator fit on one snapshot/model degrades silently as inputs shift. <em>Verify:</em> continuous ECE monitoring with alerting; mandatory recalibration on any <code>ModelPin</code>/<code>SnapshotId</code> change; quarterly floor.</li>
+<li><strong>Oracle coverage gaps.</strong> Deterministic grounding only protects the verifiable subset of a claim; the prose around it is still model-generated. <em>Verify:</em> track the fraction of each answer that is oracle-checkable; expand calculators/KG coverage where the unchecked fraction is high; never let oracle silence be read as oracle agreement.</li>
+<li><strong>NLI verifier blind spots.</strong> The entailment model can miss subtle contradictions or accept superficially-matching but wrong passages. <em>Verify:</em> adversarial NLI test set in <code>oncora-eval</code>; ensemble NLI models; keep contradictions as competing evidence rather than discarding.</li>
+<li><strong>Self-consistency false confidence.</strong> A model can be confidently and consistently wrong (correlated errors). <em>Verify:</em> prefer multi-<em>model</em> ensembles over multi-sample for high-stakes classes; treat self-consistency as a weak signal, oracle grounding as strong.</li>
+<li><strong>Threshold miscalibration per task class.</strong> Wrong thresholds either over-abstain (useless) or under-abstain (unsafe). <em>Verify:</em> sweep thresholds on golden sets to target an explicit selective-risk operating point; review per task class.</li>
+<li><strong>Aggregation hiding weak links.</strong> Min-confidence aggregation is conservative but can be gamed by decomposing a weak claim into many trivial true ones. <em>Verify:</em> aggregate over <em>load-bearing</em> claims identified by the planner, not all atomic claims.</li>
+</ul>
+<div class="pager">
+<a class="prev" href="02-memory.html"><span class="lbl">Previous</span><span class="ttl">Agent memory</span></a>
+<a class="next" href="04-knowledge-and-data.html"><span class="lbl">Next</span><span class="ttl">Knowledge & data</span></a>
+</div>
+</article>
+</main>
+</div>
+<script>
+function syncScrim(){document.querySelector('.scrim').classList.toggle('show',document.body.classList.contains('nav-open'));
+  document.getElementById('sidebar').classList.toggle('open',document.body.classList.contains('nav-open'));}
+new MutationObserver(syncScrim).observe(document.body,{attributes:true,attributeFilter:['class']});
+</script>
+<script src="assets/js/highlight.min.js"></script>
+<script src="assets/js/rust.min.js"></script>
+<script src="assets/js/mermaid.min.js"></script>
+<script>
+  document.querySelectorAll('pre code').forEach(function(el){ try{ hljs.highlightElement(el); }catch(e){} });
+  mermaid.initialize({
+    startOnLoad:true, securityLevel:'loose',
+    theme:'base',
+    themeVariables:{
+      darkMode:true, background:'#0c1726',
+      primaryColor:'#13233c', primaryTextColor:'#e6edf6', primaryBorderColor:'#2dd4bf',
+      lineColor:'#7dd3fc', secondaryColor:'#16243d', tertiaryColor:'#0e1b2e',
+      fontFamily:"'Segoe UI',system-ui,sans-serif", fontSize:'15px',
+      clusterBkg:'#0e1b2e', clusterBorder:'#2b405f',
+      actorBkg:'#13233c', actorBorder:'#2dd4bf', actorTextColor:'#e6edf6',
+      signalColor:'#9fb3c8', signalTextColor:'#cbd9ea', labelBoxBkgColor:'#13233c', labelBoxBorderColor:'#2b405f'
+    }
+  });
+</script>
+</body>
+</html>

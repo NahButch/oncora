@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Knowledge & data · Oncora</title>
+<meta name="description" content="Oncora — Knowledge & data"/>
+<link rel="icon" href="assets/svg/oncora-mark.svg"/>
+<link rel="stylesheet" href="assets/css/hljs-github-dark.css"/>
+<link rel="stylesheet" href="assets/css/style.css"/>
+</head>
+<body>
+<button class="menu-btn" aria-label="Menu" onclick="document.body.classList.toggle('nav-open')">☰</button>
+<div class="scrim" onclick="document.body.classList.remove('nav-open')"></div>
+<div class="layout">
+<aside class="sidebar" id="sidebar">
+  <a class="brand" href="index.html">
+    <img src="assets/svg/oncora-mark.svg" alt="Oncora"/>
+    <span>
+      <span class="name">Onc<span>ora</span></span>
+      <span class="sub">Oncology Reasoning Agents</span>
+    </span>
+  </a>
+  <nav class="nav">
+<div class="group">Start</div>
+<a class="nav-link" href="index.html"><span>Home</span></a>
+<a class="nav-link" href="00-overview.html"><span class="num">00</span><span>Overview</span></a>
+<div class="group">Architecture</div>
+<a class="nav-link" href="01-architecture.html"><span class="num">01</span><span>Architecture</span></a>
+<a class="nav-link" href="02-memory.html"><span class="num">02</span><span>Agent memory</span></a>
+<a class="nav-link" href="03-uncertainty-reliability.html"><span class="num">03</span><span>Uncertainty</span></a>
+<a class="nav-link active" href="04-knowledge-and-data.html"><span class="num">04</span><span>Knowledge & data</span></a>
+<div class="group">Engineering</div>
+<a class="nav-link" href="05-tech-decisions.html"><span class="num">05</span><span>Tech decisions</span></a>
+<a class="nav-link" href="06-eval-benchmarking.html"><span class="num">06</span><span>Eval & benchmarks</span></a>
+<a class="nav-link" href="07-repo-layout.html"><span class="num">07</span><span>Repo layout</span></a>
+<a class="nav-link" href="08-roadmap.html"><span class="num">08</span><span>Roadmap & ops</span></a>
+  </nav>
+  <div class="foot">
+    Rust-native · on-prem · MCP<br/>
+    <a href="https://github.com/NahButch/oncora">github.com/NahButch/oncora</a><br/>
+    <span style="color:#475569">Built 2026-06-03</span>
+  </div>
+</aside>
+<main class="main">
+<div class="page-banner"><img src="assets/svg/banner-ingestion.svg" alt="Knowledge & data illustration"/></div>
+<article class="content">
+<h1 id="knowledge-data-multimodal-ingestion-stores-and-hybrid-retrieval">Knowledge &amp; Data — Multimodal Ingestion, Stores, and Hybrid Retrieval<a class="headerlink" href="#knowledge-data-multimodal-ingestion-stores-and-hybrid-retrieval" title="Permanent link">#</a></h1>
+<p>This document specifies how Oncora turns four heterogeneous oncology modalities — literature, multi-omics, biomolecular knowledge, and clinical imaging — into a single queryable evidence substrate, and how that substrate is retrieved at reasoning time. It is the data-layer counterpart to <a href="01-architecture.html">01-architecture.md</a>, feeds the memory machinery in <a href="02-memory.html">02-memory.md</a>, and carries the provenance and snapshot guarantees that <a href="03-uncertainty-reliability.html">03-uncertainty-reliability.md</a> depends on. Technology choices are locked in <a href="05-tech-decisions.html">05-tech-decisions.md</a>; crate boundaries are in <a href="07-repo-layout.html">07-repo-layout.md</a>.</p>
+<p>The governing principle: <strong>Oncora reads snapshots and never writes back to source data.</strong> Every artifact it produces is content-addressed, every claim carries provenance back to a pinned snapshot and a pinned model, and ingestion is a deterministic, replayable function of (snapshot, pinned models, pipeline version).</p>
+<hr />
+<h2 id="1-the-knowledge-layer-in-one-paragraph">1. The knowledge layer in one paragraph<a class="headerlink" href="#1-the-knowledge-layer-in-one-paragraph" title="Permanent link">#</a></h2>
+<p>Raw sources are pulled into <strong>content-addressed snapshots</strong> (BLAKE3, immutable). The <code>oncora-ingest</code> crate runs modality-specific <a href="05-tech-decisions.html"><code>swiftide</code></a> pipelines that <strong>normalize</strong> each source into typed Oncora records, <strong>embed</strong> what is embeddable (text, image/feature vectors) with pinned on-prem models, <strong>index</strong> vectors into <code>qdrant</code> (text/RAG) and <code>lancedb</code> (multimodal/imaging), and <strong>graph</strong> structured facts into the dual knowledge graph: <code>oxigraph</code> for ontology-grounded canonical entities with stable URIs, and <code>cozo</code> for the time-travelling evidence/assertion graph. Omics and imaging stay behind in-house MCP servers (<code>noodles</code> for genomics, <code>dicom-rs</code> for DICOM) and are queried analytically with <code>polars</code>/<code>duckdb</code> over Parquet. Retrieval is <strong>hybrid</strong>: vector search and graph traversal fan out in parallel, scores are fused, results are re-ranked, and provenance is carried through to the answer.</p>
+<hr />
+<h2 id="2-per-modality-ingestion">2. Per-modality ingestion<a class="headerlink" href="#2-per-modality-ingestion" title="Permanent link">#</a></h2>
+<p>Every modality follows the same five-stage contract — <strong>source → normalize → embed → index → graph</strong> — but the work inside each stage differs. The pipeline contract is ours (<code>oncora-ingest</code>); <code>swiftide</code> is the streaming engine underneath, and we own the trait boundary regardless of it.</p>
+<h3 id="21-literature">2.1 Literature<a class="headerlink" href="#21-literature" title="Permanent link">#</a></h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>What happens</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Source</td>
+<td>PubMed abstracts + open full-text snapshots, bioRxiv/medRxiv preprints, internal reports. Pulled into an immutable corpus snapshot with per-document BLAKE3 IDs and source metadata.</td>
+</tr>
+<tr>
+<td>Normalize</td>
+<td>Strip markup; segment into sections; <strong>semantic chunking</strong> with section-aware boundaries and overlap; attach <code>SourceRef</code> to every chunk. Sentence-level claim candidates extracted for the evidence graph.</td>
+</tr>
+<tr>
+<td>Embed</td>
+<td>Text chunks embedded on-prem via <code>fastembed</code> over <code>ort</code> (ONNX). Model + dimension pinned.</td>
+</tr>
+<tr>
+<td>Index</td>
+<td>Chunk vectors + payload metadata into <code>qdrant</code> (HNSW, payload filtering, quantization).</td>
+</tr>
+<tr>
+<td>Graph</td>
+<td>Extracted claims → <code>cozo</code> evidence graph as <code>Claim</code>/<code>Evidence</code> nodes with <code>derived_from → Source</code> edges; recognized entities (genes, diseases, compounds) <strong>resolved</strong> against <code>oxigraph</code> canonical URIs.</td>
+</tr>
+</tbody>
+</table></div>
+<p>Literature is the only modality where the <em>text itself</em> is the primary retrievable; for the rest, text is secondary to structure.</p>
+<h3 id="22-omics">2.2 Omics<a class="headerlink" href="#22-omics" title="Permanent link">#</a></h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>What happens</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Source</td>
+<td>Variant calls as <strong>VCF/BCF</strong> served by the in-house VCF MCP server (built on <code>noodles</code>); bulk tabular omics (expression, mutation matrices, CNV) as <strong>Parquet</strong> snapshots. PHI/IP never leaves the trust boundary.</td>
+</tr>
+<tr>
+<td>Normalize</td>
+<td>VCF parsed to typed <code>Variant</code> records (locus, ref/alt, consequence, gene); tabular omics validated against expected schema; units and identifiers normalized to HGNC gene symbols and canonical loci.</td>
+</tr>
+<tr>
+<td>Embed</td>
+<td>Omics is mostly <strong>not</strong> embedded — it is queried analytically. Optional: derived signatures (e.g. mutational profiles) may get feature embeddings into <code>lancedb</code> for similarity search across cohorts.</td>
+</tr>
+<tr>
+<td>Index</td>
+<td>Tabular omics queried in place with <code>polars</code> (in-proc dataframes) and <code>duckdb</code> (SQL over Parquet); no separate vector index for raw matrices.</td>
+</tr>
+<tr>
+<td>Graph</td>
+<td><code>Variant</code> entities into the KG: <code>located_in → Target</code>, <code>confers → sensitivity/resistance</code>. Canonical variant + gene URIs in <code>oxigraph</code>; cohort-level assertions and confidences in <code>cozo</code>.</td>
+</tr>
+</tbody>
+</table></div>
+<p>Omics analytics run <strong>behind MCP tool boundaries</strong> — agents never touch raw files; they call typed tools that return typed records with provenance.</p>
+<h3 id="23-imaging">2.3 Imaging<a class="headerlink" href="#23-imaging" title="Permanent link">#</a></h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>What happens</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Source</td>
+<td><strong>DICOM</strong> studies/series behind the imaging MCP server (built on <code>dicom-rs</code>). Pixel data and PHI stay on-prem; only de-identified features and embeddings move into the index.</td>
+</tr>
+<tr>
+<td>Normalize</td>
+<td>DICOM parsed to typed study/series/instance records; spacing/orientation normalized; de-identification enforced at the MCP boundary; clinically relevant tags retained as metadata.</td>
+</tr>
+<tr>
+<td>Embed</td>
+<td>Image and derived-feature embeddings produced on-prem via <code>candle</code>-hosted vision models or <code>ort</code>. Pinned model + dimension.</td>
+</tr>
+<tr>
+<td>Index</td>
+<td>Image/feature vectors + rich metadata into <code>lancedb</code> (columnar, multimodal, versioned). LanceDB is chosen here precisely because imaging vectors travel with heavy structured metadata.</td>
+</tr>
+<tr>
+<td>Graph</td>
+<td>Imaging-derived findings become <code>Evidence</code> linked to <code>Claim</code>/<code>Cohort</code>/<code>Disease</code> in <code>cozo</code>; canonical anatomy/finding terms resolved to ontology URIs in <code>oxigraph</code> where available.</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="24-biomolecular-knowledge-ontologies">2.4 Biomolecular knowledge (ontologies)<a class="headerlink" href="#24-biomolecular-knowledge-ontologies" title="Permanent link">#</a></h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>What happens</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Source</td>
+<td><strong>GO, Reactome, ChEMBL, UMLS, MONDO, HGNC</strong> distributed as RDF / convertible to RDF. Each release pinned as a versioned snapshot.</td>
+</tr>
+<tr>
+<td>Normalize</td>
+<td>Mapped to a common RDF model; cross-references reconciled (e.g. HGNC ↔ gene URIs, MONDO ↔ disease URIs).</td>
+</tr>
+<tr>
+<td>Embed</td>
+<td>Not embedded — this is the canonical symbolic layer. Entity <em>labels/synonyms</em> may be embedded into <code>qdrant</code>/<code>lancedb</code> to power entity <strong>resolution</strong> during other pipelines.</td>
+</tr>
+<tr>
+<td>Index</td>
+<td>Loaded as triples into <strong><code>oxigraph</code></strong>, queryable by <strong>SPARQL</strong>.</td>
+</tr>
+<tr>
+<td>Graph</td>
+<td>This <em>is</em> the ontology layer of the KG: <code>Target</code>, <code>Disease</code>, <code>Pathway</code>, <code>Compound</code> canonical entities with stable URIs and the edges <code>involved_in</code>, <code>associated_with</code>, <code>modulates</code>.</td>
+</tr>
+</tbody>
+</table></div>
+<p>This layer is the <strong>ground truth for identity</strong>: every entity mentioned anywhere else is resolved to a URI here, which is what makes cross-modal joins possible at all.</p>
+<hr />
+<h2 id="3-multimodal-ingestion-pipeline">3. Multimodal ingestion pipeline<a class="headerlink" href="#3-multimodal-ingestion-pipeline" title="Permanent link">#</a></h2>
+<p>All four pipelines share the source → normalize → embed → index → graph shape, run as <code>swiftide</code> streaming jobs under <code>oncora-ingest</code>, and fan into the two vector stores and the two graph stores. Provenance and snapshot IDs are attached at the source stage and carried through every downstream record.</p>
+<pre class="mermaid">flowchart LR
+  subgraph src[&quot;Sources - pinned snapshots&quot;]
+    lit[&quot;Literature&lt;br/&gt;PubMed full-text&lt;br/&gt;bioRxiv&quot;]
+    omics[&quot;Omics&lt;br/&gt;VCF via noodles&lt;br/&gt;Parquet&quot;]
+    img[&quot;Imaging&lt;br/&gt;DICOM via dicom-rs&quot;]
+    onto[&quot;Ontologies&lt;br/&gt;GO Reactome ChEMBL&lt;br/&gt;UMLS MONDO HGNC&quot;]
+  end
+
+  subgraph ingest[&quot;oncora-ingest - swiftide pipelines&quot;]
+    norm[&quot;Normalize&lt;br/&gt;typed records&lt;br/&gt;chunk de-identify&lt;br/&gt;attach provenance&quot;]
+    embed[&quot;Embed&lt;br/&gt;fastembed ort text&lt;br/&gt;candle ort imaging&quot;]
+  end
+
+  subgraph index[&quot;Vector index&quot;]
+    qd[&quot;qdrant&lt;br/&gt;text RAG&quot;]
+    lance[&quot;lancedb&lt;br/&gt;imaging multimodal&quot;]
+  end
+
+  subgraph graph[&quot;Knowledge graph&quot;]
+    ox[&quot;oxigraph&lt;br/&gt;ontology URIs&lt;br/&gt;SPARQL&quot;]
+    cz[&quot;cozo&lt;br/&gt;evidence graph&lt;br/&gt;time-travel&quot;]
+  end
+
+  lit --&gt; norm
+  omics --&gt; norm
+  img --&gt; norm
+  onto --&gt; norm
+
+  norm --&gt; embed
+  norm --&gt;|&quot;structured facts&quot;| ox
+  norm --&gt;|&quot;claims evidence&quot;| cz
+
+  embed --&gt;|&quot;text vectors&quot;| qd
+  embed --&gt;|&quot;image vectors&quot;| lance
+
+  onto --&gt;|&quot;triples&quot;| ox
+  ox &lt;--&gt;|&quot;entity resolution&lt;br/&gt;URI grounding&quot;| cz</pre>
+<p>Note the <code>oxigraph ↔ cozo</code> link: when <code>oncora-ingest</code> writes an assertion into the evidence graph, it resolves the entities it mentions to canonical ontology URIs first, so the evidence graph references the same identities as the symbolic layer.</p>
+<hr />
+<h2 id="4-embedding-strategy">4. Embedding strategy<a class="headerlink" href="#4-embedding-strategy" title="Permanent link">#</a></h2>
+<p>Embeddings are <strong>on-prem, pinned, and versioned</strong>. No embedding model is called over the network by default; each is loaded locally via <code>ort</code> (ONNX) or <code>candle</code>, and its identity is part of the snapshot manifest so that a re-index is bit-stable.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Modality</th>
+<th>Engine</th>
+<th>Model class</th>
+<th>Dim (target)</th>
+<th>Stored in</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Literature / text</td>
+<td><code>fastembed</code> over <code>ort</code></td>
+<td>Biomedical/general sentence embedder</td>
+<td>768</td>
+<td><code>qdrant</code></td>
+</tr>
+<tr>
+<td>Entity labels / synonyms</td>
+<td><code>fastembed</code> over <code>ort</code></td>
+<td>Same text embedder</td>
+<td>768</td>
+<td><code>qdrant</code> (resolution index)</td>
+</tr>
+<tr>
+<td>Imaging</td>
+<td><code>candle</code> or <code>ort</code></td>
+<td>Vision/feature encoder</td>
+<td>512–1024</td>
+<td><code>lancedb</code></td>
+</tr>
+<tr>
+<td>Omics-derived signatures</td>
+<td><code>candle</code> or <code>ort</code></td>
+<td>Tabular/profile encoder</td>
+<td>task-specific</td>
+<td><code>lancedb</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>Rules of the road:</p>
+<ul>
+<li><strong>Pinning.</strong> Each embedding model is referenced by a <code>ModelPin</code> (name + revision + checksum). <code>fastembed</code> pulls ONNX weights — these are downloaded once, content-addressed, and frozen. A change of model is a new pin and forces a re-index, never a silent in-place mix.</li>
+<li><strong>Dimension discipline.</strong> A collection's dimension is fixed at creation. Mixing dimensions or models inside one collection is forbidden; cross-model comparison happens through re-embedding, not vector arithmetic.</li>
+<li><strong>Co-location with metadata.</strong> Vectors never travel alone — every vector carries <code>SourceRef</code>, <code>SnapshotId</code>, and the <code>ModelPin</code> used to produce it, so retrieval can reconstruct provenance and detect stale vectors after a re-pin.</li>
+<li><strong>Trait boundary.</strong> All of this sits behind the <code>EmbeddingProvider</code> trait in <code>oncora-core</code>; <code>fastembed</code>/<code>candle</code>/<code>ort</code> are concrete impls and swappable without touching callers.</li>
+</ul>
+<p>This is the same embedding substrate that semantic memory uses (<a href="02-memory.html">02-memory.md</a>) — there is one embedding layer, not one per subsystem.</p>
+<hr />
+<h2 id="5-knowledge-graph-design-the-dual-store">5. Knowledge graph design — the dual store<a class="headerlink" href="#5-knowledge-graph-design-the-dual-store" title="Permanent link">#</a></h2>
+<p>Oncora runs <strong>two</strong> graph stores on purpose. They answer different questions and have different correctness models, and conflating them would force one set of compromises onto both.</p>
+<h3 id="51-oxigraph-the-ontology-canonical-entity-layer">5.1 <code>oxigraph</code> — the ontology / canonical-entity layer<a class="headerlink" href="#51-oxigraph-the-ontology-canonical-entity-layer" title="Permanent link">#</a></h3>
+<ul>
+<li>Holds <strong>ontology-grounded canonical entities</strong> with stable <strong>URIs</strong> sourced from GO, Reactome, ChEMBL, UMLS, MONDO, HGNC.</li>
+<li>Standards-based <strong>RDF triplestore</strong>, queried with <strong>SPARQL</strong>.</li>
+<li>This is the <strong>identity authority</strong>: "what <em>is</em> EGFR", "which pathways is it <code>involved_in</code>", "what is the canonical URI for this disease". Facts here are curated, slow-moving, and treated as ground truth for identity and ontology structure.</li>
+<li>Pure-Rust, ships cleanly on-prem, and SPARQL is the natural query language for bio-ontologies.</li>
+</ul>
+<h3 id="52-cozo-the-evidence-assertion-graph">5.2 <code>cozo</code> — the evidence / assertion graph<a class="headerlink" href="#52-cozo-the-evidence-assertion-graph" title="Permanent link">#</a></h3>
+<ul>
+<li>Holds the <strong>evidence/assertion graph</strong>: <code>Claim</code>s, the <code>Evidence</code> for and against them, and the relationships Oncora <em>derives</em> rather than <em>imports</em>.</li>
+<li>Queried with <strong>Datalog</strong>; supports <strong>time-travel</strong> (point-in-time queries), <strong>per-edge confidence</strong>, and <strong>per-edge provenance</strong>.</li>
+<li>This is where contradiction lives: competing evidence is kept side by side with confidences, never silently overwritten (consistent with the memory conflict-resolution policy in <a href="02-memory.html">02-memory.md</a>).</li>
+<li>Time-travel is the differentiator: "what did we believe about this target <em>as of</em> last quarter's snapshot" is a first-class query, which is exactly what reproducible reasoning and audit need.</li>
+</ul>
+<h3 id="53-which-store-a-query-hits">5.3 Which store a query hits<a class="headerlink" href="#53-which-store-a-query-hits" title="Permanent link">#</a></h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Query intent</th>
+<th>Store</th>
+<th>Language</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Resolve a name/symbol to a canonical entity URI</td>
+<td><code>oxigraph</code></td>
+<td>SPARQL</td>
+</tr>
+<tr>
+<td>Ontology structure — pathways, gene→pathway, disease hierarchy</td>
+<td><code>oxigraph</code></td>
+<td>SPARQL</td>
+</tr>
+<tr>
+<td>Compound→target modulation from curated sources</td>
+<td><code>oxigraph</code></td>
+<td>SPARQL</td>
+</tr>
+<tr>
+<td>What do we <em>claim</em>, and what evidence supports/contradicts it</td>
+<td><code>cozo</code></td>
+<td>Datalog</td>
+</tr>
+<tr>
+<td>Per-edge confidence + provenance of an assertion</td>
+<td><code>cozo</code></td>
+<td>Datalog</td>
+</tr>
+<tr>
+<td>Point-in-time / "as of snapshot X" beliefs</td>
+<td><code>cozo</code></td>
+<td>Datalog</td>
+</tr>
+<tr>
+<td>Cross-store join — canonical entity + its accrued evidence</td>
+<td>both</td>
+<td>SPARQL + Datalog, fused in <code>oncora-kg</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>The fusion of the two stores is owned by <code>oncora-kg</code>, which exposes a single <code>GraphStore</code> trait so callers express <em>intent</em>, not <em>store choice</em>.</p>
+<hr />
+<h2 id="6-kg-schema">6. KG schema<a class="headerlink" href="#6-kg-schema" title="Permanent link">#</a></h2>
+<p>Entities and edges follow the canon exactly. The schema below is the conceptual ER view; physically, the canonical entities (<code>Target</code>, <code>Disease</code>, <code>Pathway</code>, <code>Compound</code>, <code>Variant</code> identity) live in <code>oxigraph</code> as URIs, while <code>Claim</code>, <code>Evidence</code>, <code>Source</code>, <code>Provenance</code>, and confidence-bearing edges live in <code>cozo</code>.</p>
+<pre class="mermaid">erDiagram
+  TARGET ||--o{ PATHWAY : involved_in
+  TARGET ||--o{ DISEASE : associated_with
+  COMPOUND ||--o{ TARGET : modulates
+  VARIANT ||--o{ TARGET : located_in
+  VARIANT ||--o{ DISEASE : confers_sensitivity_resistance
+  TRIAL ||--o{ DISEASE : targets
+  TRIAL ||--o{ COMPOUND : tests
+  COHORT ||--o{ DISEASE : characterizes
+  CLAIM ||--o{ TARGET : about
+  CLAIM ||--o{ DISEASE : about
+  CLAIM ||--o{ COMPOUND : about
+  CLAIM ||--o{ VARIANT : about
+  EVIDENCE ||--o{ CLAIM : supports_contradicts
+  EVIDENCE ||--o{ SOURCE : derived_from
+  COHORT ||--o{ EVIDENCE : yields
+  PROVENANCE ||--|| CLAIM : has
+  PROVENANCE ||--|| EVIDENCE : has
+  PROVENANCE ||--|| SOURCE : has
+
+  TARGET {
+    string uri
+    string hgnc_symbol
+    string kind
+  }
+  DISEASE {
+    string uri
+    string mondo_id
+    string label
+  }
+  PATHWAY {
+    string uri
+    string reactome_id
+    string label
+  }
+  COMPOUND {
+    string uri
+    string chembl_id
+    string label
+  }
+  VARIANT {
+    string uri
+    string locus
+    string ref_alt
+    string consequence
+  }
+  TRIAL {
+    string id
+    string phase
+    string status
+  }
+  COHORT {
+    string id
+    int n
+    string description
+  }
+  CLAIM {
+    string id
+    string statement
+    float confidence
+  }
+  EVIDENCE {
+    string id
+    string polarity
+    float weight
+  }
+  SOURCE {
+    string id
+    string kind
+    string snapshot_id
+  }
+  PROVENANCE {
+    string id
+    string model_pin
+    string snapshot_id
+    string tool_calls
+  }</pre>
+<p>Reading the edges: a <code>Compound</code> <code>modulates</code> a <code>Target</code>; a <code>Variant</code> is <code>located_in</code> a <code>Target</code> and <code>confers</code> sensitivity or resistance; a <code>Trial</code> <code>targets</code> a <code>Disease</code> and <code>tests</code> a <code>Compound</code>; a <code>Claim</code> is <code>about</code> any canonical entity; <code>Evidence</code> <code>supports</code> or <code>contradicts</code> a <code>Claim</code> and is <code>derived_from</code> a <code>Source</code>; and <em>everything</em> <code>has</code> <code>Provenance</code>.</p>
+<hr />
+<h2 id="7-hybrid-retrieval">7. Hybrid retrieval<a class="headerlink" href="#7-hybrid-retrieval" title="Permanent link">#</a></h2>
+<p>A single query rarely lives in one store. "Which variants confer resistance to this EGFR inhibitor, and what's the evidence" needs ontology structure (<code>oxigraph</code>), accrued assertions with confidence (<code>cozo</code>), and supporting passages (<code>qdrant</code>/<code>lancedb</code>) all at once. Oncora's retrieval layer (<code>oncora-retrieval</code>) plans the query, fans out in parallel, fuses the scores, re-ranks, and carries provenance all the way through.</p>
+<p>This is the <strong>same hybrid retrieval used by agent memory</strong> (<a href="02-memory.html">02-memory.md</a>) — the read path for semantic memory <em>is</em> this layer with a memory-scoped filter, not a parallel implementation.</p>
+<h3 id="71-stages">7.1 Stages<a class="headerlink" href="#71-stages" title="Permanent link">#</a></h3>
+<ol>
+<li><strong>Query planning.</strong> Classify the query into the substores it needs (vector / graph-ontology / graph-evidence) and rewrite per-store sub-queries. A pure lookup may target one store; a reasoning query targets all.</li>
+<li><strong>Parallel fan-out.</strong> Sub-queries dispatched concurrently as bounded <code>tokio</code> tasks: <code>qdrant</code> (text), <code>lancedb</code> (imaging/multimodal), <code>oxigraph</code> (SPARQL), <code>cozo</code> (Datalog). Per-store timeouts via <code>tower</code>; a slow or empty store degrades the result, it does not block it.</li>
+<li><strong>Score fusion.</strong> Heterogeneous scores (cosine similarity vs graph relevance) are reconciled with <strong>reciprocal rank fusion</strong> by default — robust because it needs no score calibration across stores — with an optional <strong>weighted</strong> fusion when per-store weights are tuned for a task class.</li>
+<li><strong>Re-ranking.</strong> A cross-encoder (on-prem, pinned) re-ranks the fused top-k against the original query for precision before the context budget is spent.</li>
+<li><strong>Provenance carry-through.</strong> Every surviving candidate keeps its <code>SourceRef</code>, <code>SnapshotId</code>, and <code>ModelPin</code> from index time, so the assembled context — and any claim built on it — is fully traceable. This is what makes the <code>retrieval</code> <code>UncertaintySource</code> in <a href="03-uncertainty-reliability.html">03-uncertainty-reliability.md</a> computable: coverage and store agreement are measured here.</li>
+</ol>
+<pre class="mermaid">flowchart TD
+  q[&quot;Query&quot;] --&gt; plan[&quot;Query planner&lt;br/&gt;classify + rewrite&quot;]
+
+  plan --&gt; fan{&quot;Parallel fan-out&quot;}
+  fan --&gt; v1[&quot;qdrant&lt;br/&gt;text vectors&quot;]
+  fan --&gt; v2[&quot;lancedb&lt;br/&gt;imaging vectors&quot;]
+  fan --&gt; g1[&quot;oxigraph&lt;br/&gt;SPARQL ontology&quot;]
+  fan --&gt; g2[&quot;cozo&lt;br/&gt;Datalog evidence&quot;]
+
+  v1 --&gt; fuse[&quot;Score fusion&lt;br/&gt;RRF or weighted&quot;]
+  v2 --&gt; fuse
+  g1 --&gt; fuse
+  g2 --&gt; fuse
+
+  fuse --&gt; rr[&quot;Re-rank&lt;br/&gt;cross-encoder pinned&quot;]
+  rr --&gt; prov[&quot;Carry provenance&lt;br/&gt;SourceRef Snapshot ModelPin&quot;]
+  prov --&gt; ctx[&quot;Context assembly&lt;br/&gt;under token budget&quot;]</pre>
+<hr />
+<h2 id="8-omics-imaging-analytics">8. Omics &amp; imaging analytics<a class="headerlink" href="#8-omics-imaging-analytics" title="Permanent link">#</a></h2>
+<p>Structured modalities are <strong>analytical, not just retrievable</strong>, and all of them sit <strong>behind MCP tool boundaries</strong> so agents call typed, deterministic, audited tools — never raw files.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Concern</th>
+<th>Tool</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Genomics formats</td>
+<td><code>noodles</code></td>
+<td>Pure-Rust VCF/BCF/BAM/CRAM/FASTA/GFF/tabix parsing inside the VCF MCP server.</td>
+</tr>
+<tr>
+<td>In-proc dataframes</td>
+<td><code>polars</code></td>
+<td>Fast in-process filtering/joins/aggregation over omics tables for tool responses.</td>
+</tr>
+<tr>
+<td>SQL over snapshots</td>
+<td><code>duckdb</code></td>
+<td>Ad-hoc SQL over <strong>Parquet</strong> snapshots — cohort slicing, expression queries, joins across matrices.</td>
+</tr>
+<tr>
+<td>Columnar interchange</td>
+<td><code>arrow</code></td>
+<td>Zero-copy bridge between <code>polars</code>, <code>duckdb</code>, and Parquet.</td>
+</tr>
+<tr>
+<td>Imaging formats</td>
+<td><code>dicom-rs</code></td>
+<td>Pure-Rust DICOM parse/IO inside the imaging MCP server; de-identification enforced at the boundary.</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>polars</code> handles the in-memory, single-shot transforms; <code>duckdb</code> handles set-oriented SQL over the on-disk Parquet snapshots that are too large or too relational for a dataframe. Both read snapshots; neither writes back. The MCP boundary is what makes these calls <strong>deterministic and auditable</strong> — every tool call is recorded to episodic memory and the provenance ledger (<a href="01-architecture.html">01-architecture.md</a>).</p>
+<hr />
+<h2 id="9-provenance-snapshots">9. Provenance &amp; snapshots<a class="headerlink" href="#9-provenance-snapshots" title="Permanent link">#</a></h2>
+<p>Reproducibility is enforced at the data layer, not bolted on after:</p>
+<ul>
+<li><strong>Content-addressed snapshots.</strong> Every source — a PubMed corpus pull, a Parquet release, an ontology version, a DICOM batch — is frozen into an immutable snapshot identified by a <strong>BLAKE3</strong> content hash. Snapshots are append-only; a new pull is a new <code>SnapshotId</code>, never an edit.</li>
+<li><strong>Pinned data versions.</strong> A run references exact <code>SnapshotId</code>s. Re-running with the same snapshots + pinned models + pipeline version reproduces the index and the answer.</li>
+<li><strong>No writes to source data.</strong> Oncora is strictly read-only against source systems. All derived artifacts (chunks, vectors, triples, evidence edges) live in Oncora-owned stores and are themselves content-addressed.</li>
+<li><strong>Provenance on every record.</strong> Every chunk, vector, triple, and evidence edge carries <code>Provenance { sources, tool_calls, model, snapshot }</code>. The Postgres provenance ledger plus CAS manifests (<a href="02-memory.html">02-memory.md</a>) make any claim auditable back to bytes.</li>
+<li><strong>Time-travel as a query.</strong> Because <code>cozo</code> retains history and snapshots are immutable, "what did we believe as of snapshot X" is a query, not an archaeology project.</li>
+</ul>
+<hr />
+<h2 id="10-decision-table-what-lives-where">10. Decision table — what lives where<a class="headerlink" href="#10-decision-table-what-lives-where" title="Permanent link">#</a></h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Store</th>
+<th>What lives there</th>
+<th>Query language</th>
+<th>Why this store</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>qdrant</code></td>
+<td>Literature/text chunk embeddings + payload; entity-label resolution vectors</td>
+<td>HNSW vector search + payload filter</td>
+<td>Rust-native server, payload filtering, quantization; the text/RAG workhorse</td>
+</tr>
+<tr>
+<td><code>lancedb</code></td>
+<td>Imaging + multimodal + omics-signature embeddings with heavy metadata</td>
+<td>Vector search over columnar store</td>
+<td>Columnar, multimodal, versioned; vectors travel with rich structured metadata</td>
+</tr>
+<tr>
+<td><code>oxigraph</code></td>
+<td>Ontology-grounded canonical entities + URIs from GO/Reactome/ChEMBL/UMLS/MONDO/HGNC</td>
+<td>SPARQL</td>
+<td>Standards-based triplestore; identity authority; natural fit for bio-ontologies</td>
+</tr>
+<tr>
+<td><code>cozo</code></td>
+<td>Evidence/assertion graph: claims, evidence, per-edge confidence + provenance</td>
+<td>Datalog</td>
+<td>Time-travel + per-edge confidence + provenance; versioned evidence + semantic memory</td>
+</tr>
+<tr>
+<td><code>polars</code> / <code>duckdb</code></td>
+<td>Tabular omics over Parquet snapshots</td>
+<td>DataFrame / SQL</td>
+<td>In-proc transforms + set-oriented SQL over snapshots; analytical not retrieval</td>
+</tr>
+<tr>
+<td>Parquet via MCP</td>
+<td>Raw omics matrices (read-only snapshots)</td>
+<td>DuckDB SQL / Arrow</td>
+<td>Columnar at-rest source-of-record snapshot, behind MCP boundary</td>
+</tr>
+<tr>
+<td>Postgres ledger</td>
+<td>Provenance/audit records linking every artifact to sources/tools/model/snapshot</td>
+<td>SQL (<code>sqlx</code>)</td>
+<td>Async compile-checked SQL; durable multi-node provenance ledger</td>
+</tr>
+<tr>
+<td>CAS over object store</td>
+<td>Content-addressed payloads + manifests (BLAKE3)</td>
+<td>Content hash lookup</td>
+<td>Deterministic replay; immutable artifacts</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="11-risks">11. Risks<a class="headerlink" href="#11-risks" title="Permanent link">#</a></h2>
+<ul>
+<li><strong>Entity resolution.</strong> Mapping a literature mention or a VCF gene symbol to the <em>right</em> canonical URI is the hardest correctness problem in the layer — synonyms, ambiguous symbols, and cross-ontology mismatches (HGNC vs UMLS vs MONDO) produce silent mis-joins. Mitigation: embedding-assisted candidate generation, deterministic disambiguation rules, confidence on every resolution edge, and human escalation when ambiguous — consistent with the abstain/escalate policy in <a href="03-uncertainty-reliability.html">03-uncertainty-reliability.md</a>.</li>
+<li><strong>Ontology version skew.</strong> GO/Reactome/ChEMBL/UMLS/MONDO/HGNC release on different cadences; URIs and hierarchies drift, terms are merged or obsoleted. Mitigation: pin every ontology as a versioned snapshot, treat a version bump as a re-index event, and use <code>cozo</code> time-travel so old evidence stays interpretable against the ontology it was asserted under.</li>
+<li><strong>Embedding model drift.</strong> Swapping or upgrading an embedding model invalidates cross-version vector comparisons and can quietly degrade retrieval. Mitigation: <code>ModelPin</code> on every vector, dimension locked per collection, re-pin forces a full re-index, and benchmark gating in <a href="06-eval-benchmarking.html">06-eval-benchmarking.md</a> catches retrieval-quality regressions before they merge.</li>
+<li><strong>Cross-store consistency.</strong> The <code>oxigraph</code> identity layer and the <code>cozo</code> evidence graph can drift apart if entity URIs change underneath accrued evidence. Mitigation: resolve to URIs at write time, version the resolution, and reconcile on ontology re-index rather than at query time.</li>
+<li><strong>Snapshot/storage growth.</strong> Immutable, content-addressed snapshots plus re-index-on-pin can balloon storage. Mitigation: deduplicated CAS, garbage-collection of unreferenced artifacts under retention policy, and tiered object storage — without ever deleting a referenced provenance chain.</li>
+</ul>
+<hr />
+<h2 id="related-documents">Related documents<a class="headerlink" href="#related-documents" title="Permanent link">#</a></h2>
+<ul>
+<li><a href="00-overview.html">00-overview.md</a> — the four pillars and system context.</li>
+<li><a href="01-architecture.html">01-architecture.md</a> — agent runtime, MCP host, crate layout.</li>
+<li><a href="02-memory.html">02-memory.md</a> — the five memory types; reuses this hybrid retrieval layer.</li>
+<li><a href="03-uncertainty-reliability.html">03-uncertainty-reliability.md</a> — how retrieval coverage and provenance feed uncertainty.</li>
+<li><a href="05-tech-decisions.html">05-tech-decisions.md</a> — locked technology choices behind every store named here.</li>
+<li><a href="07-repo-layout.html">07-repo-layout.md</a> — <code>oncora-ingest</code>, <code>oncora-kg</code>, <code>oncora-retrieval</code> boundaries.</li>
+</ul>
+<div class="pager">
+<a class="prev" href="03-uncertainty-reliability.html"><span class="lbl">Previous</span><span class="ttl">Uncertainty</span></a>
+<a class="next" href="05-tech-decisions.html"><span class="lbl">Next</span><span class="ttl">Tech decisions</span></a>
+</div>
+</article>
+</main>
+</div>
+<script>
+function syncScrim(){document.querySelector('.scrim').classList.toggle('show',document.body.classList.contains('nav-open'));
+  document.getElementById('sidebar').classList.toggle('open',document.body.classList.contains('nav-open'));}
+new MutationObserver(syncScrim).observe(document.body,{attributes:true,attributeFilter:['class']});
+</script>
+<script src="assets/js/highlight.min.js"></script>
+<script src="assets/js/rust.min.js"></script>
+<script src="assets/js/mermaid.min.js"></script>
+<script>
+  document.querySelectorAll('pre code').forEach(function(el){ try{ hljs.highlightElement(el); }catch(e){} });
+  mermaid.initialize({
+    startOnLoad:true, securityLevel:'loose',
+    theme:'base',
+    themeVariables:{
+      darkMode:true, background:'#0c1726',
+      primaryColor:'#13233c', primaryTextColor:'#e6edf6', primaryBorderColor:'#2dd4bf',
+      lineColor:'#7dd3fc', secondaryColor:'#16243d', tertiaryColor:'#0e1b2e',
+      fontFamily:"'Segoe UI',system-ui,sans-serif", fontSize:'15px',
+      clusterBkg:'#0e1b2e', clusterBorder:'#2b405f',
+      actorBkg:'#13233c', actorBorder:'#2dd4bf', actorTextColor:'#e6edf6',
+      signalColor:'#9fb3c8', signalTextColor:'#cbd9ea', labelBoxBkgColor:'#13233c', labelBoxBorderColor:'#2b405f'
+    }
+  });
+</script>
+</body>
+</html>

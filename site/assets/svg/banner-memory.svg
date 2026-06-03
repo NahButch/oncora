@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 200" role="img" aria-label="Agent memory: five memory types with write and read paths" font-family="'Segoe UI',system-ui,sans-serif">
+  <defs>
+    <linearGradient id="mb" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#0f1d33"/><stop offset="1" stop-color="#15203a"/></linearGradient>
+    <linearGradient id="mv" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#a78bfa"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient>
+    <marker id="mar" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#b09bf0"/></marker>
+  </defs>
+  <rect width="1200" height="200" rx="14" fill="url(#mb)"/>
+  <text x="40" y="40" fill="#e0d8ff" font-size="13" letter-spacing="2" font-weight="600">FIVE MEMORY TYPES</text>
+  <g font-size="12.5" text-anchor="middle">
+    <g><rect x="40" y="58" width="180" height="44" rx="11" fill="#13233c" stroke="#2dd4bf"/><text x="130" y="78" fill="#cfe9e4" font-weight="600">Working</text><text x="130" y="94" fill="#8fa6bd" font-size="10.5">redb spill</text></g>
+    <g><rect x="40" y="112" width="180" height="44" rx="11" fill="#13233c" stroke="#60a5fa"/><text x="130" y="132" fill="#cfe0ff" font-weight="600">Episodic</text><text x="130" y="148" fill="#8fa6bd" font-size="10.5">append log + CAS</text></g>
+    <g><rect x="240" y="58" width="180" height="44" rx="11" fill="#13233c" stroke="#fbbf24"/><text x="330" y="78" fill="#ffe9bf" font-weight="600">Semantic</text><text x="330" y="94" fill="#8fa6bd" font-size="10.5">oxigraph + cozo</text></g>
+    <g><rect x="240" y="112" width="180" height="44" rx="11" fill="#13233c" stroke="#fb7185"/><text x="330" y="132" fill="#ffd6dd" font-weight="600">Procedural</text><text x="330" y="148" fill="#8fa6bd" font-size="10.5">learned tool-use</text></g>
+    <g><rect x="140" y="166" width="180" height="30" rx="11" fill="#0e1a2c" stroke="#34d399"/><text x="230" y="186" fill="#a7f3d0" font-weight="600">Provenance / evidence</text></g>
+  </g>
+  <!-- write path -->
+  <g font-size="11.5" text-anchor="middle">
+    <text x="700" y="40" fill="#b09bf0" font-size="13" letter-spacing="2" font-weight="600">WRITE PATH</text>
+    <g fill="#cfe9e4">
+      <rect x="470" y="52" width="120" height="34" rx="9" fill="#13233c" stroke="url(#mv)"/><text x="530" y="73">extract</text>
+      <rect x="610" y="52" width="120" height="34" rx="9" fill="#13233c" stroke="url(#mv)"/><text x="670" y="73">dedup</text>
+      <rect x="750" y="52" width="160" height="34" rx="9" fill="#13233c" stroke="url(#mv)"/><text x="830" y="73">conflict resolve</text>
+      <rect x="930" y="52" width="130" height="34" rx="9" fill="#13233c" stroke="url(#mv)"/><text x="995" y="73">consolidate</text>
+      <rect x="1080" y="52" width="100" height="34" rx="9" fill="#13233c" stroke="url(#mv)"/><text x="1130" y="73">decay</text>
+    </g>
+  </g>
+  <g stroke="#b09bf0" stroke-width="2" fill="none" opacity="0.8">
+    <path d="M590 69 H610" marker-end="url(#mar)"/><path d="M730 69 H750" marker-end="url(#mar)"/>
+    <path d="M910 69 H930" marker-end="url(#mar)"/><path d="M1060 69 H1080" marker-end="url(#mar)"/>
+  </g>
+  <!-- read path -->
+  <g font-size="11.5" text-anchor="middle">
+    <text x="700" y="120" fill="#7dd3fc" font-size="13" letter-spacing="2" font-weight="600">READ PATH · hybrid</text>
+    <g fill="#cfe0ff">
+      <rect x="470" y="132" width="130" height="34" rx="9" fill="#13233c" stroke="#60a5fa"/><text x="535" y="153">vector</text>
+      <rect x="620" y="132" width="130" height="34" rx="9" fill="#13233c" stroke="#fbbf24"/><text x="685" y="153">graph</text>
+      <rect x="770" y="132" width="140" height="34" rx="9" fill="#13233c" stroke="#34d399"/><text x="840" y="153">recency</text>
+      <rect x="930" y="132" width="130" height="34" rx="9" fill="#13233c" stroke="#2dd4bf"/><text x="995" y="153">fuse</text>
+    </g>
+    <g stroke="#7dd3fc" stroke-width="2" fill="none" opacity="0.8">
+      <path d="M600 149 H620" marker-end="url(#mar)"/><path d="M750 149 H770" marker-end="url(#mar)"/><path d="M910 149 H930" marker-end="url(#mar)"/>
+    </g>
+  </g>
+</svg>

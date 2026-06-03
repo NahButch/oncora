@@ -12,6 +12,17 @@ What makes Oncora different from a generic RAG chatbot is built into its archite
 
 > This repository currently contains the **architecture and technical specification** plus a buildable project outline. The Cargo workspace skeleton follows the layout in [docs/07-repo-layout.md](docs/07-repo-layout.md).
 
+### Browse the docs as a website
+
+The Markdown spec also renders as a styled static site with hand-authored SVG illustrations and live Mermaid diagrams (sources in [site/](site/), generator in [build/build_site.py](build/build_site.py)):
+
+```bash
+make setup    # one-time: create the build venv + markdown toolchain
+make serve    # build the site and serve it at http://localhost:8137
+```
+
+The site is self-contained (Mermaid and highlight.js are vendored under `site/assets/js/`), so it works offline once served over http. The home page opens with a visual overview of how publications and multimodal data flow through the Oncora engine to the databases, AI model, and a cited, confidence-scored answer.
+
 ---
 
 ## System context

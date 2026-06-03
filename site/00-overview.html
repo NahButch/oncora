@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Overview · Oncora</title>
+<meta name="description" content="Oncora — Overview"/>
+<link rel="icon" href="assets/svg/oncora-mark.svg"/>
+<link rel="stylesheet" href="assets/css/hljs-github-dark.css"/>
+<link rel="stylesheet" href="assets/css/style.css"/>
+</head>
+<body>
+<button class="menu-btn" aria-label="Menu" onclick="document.body.classList.toggle('nav-open')">☰</button>
+<div class="scrim" onclick="document.body.classList.remove('nav-open')"></div>
+<div class="layout">
+<aside class="sidebar" id="sidebar">
+  <a class="brand" href="index.html">
+    <img src="assets/svg/oncora-mark.svg" alt="Oncora"/>
+    <span>
+      <span class="name">Onc<span>ora</span></span>
+      <span class="sub">Oncology Reasoning Agents</span>
+    </span>
+  </a>
+  <nav class="nav">
+<div class="group">Start</div>
+<a class="nav-link" href="index.html"><span>Home</span></a>
+<a class="nav-link active" href="00-overview.html"><span class="num">00</span><span>Overview</span></a>
+<div class="group">Architecture</div>
+<a class="nav-link" href="01-architecture.html"><span class="num">01</span><span>Architecture</span></a>
+<a class="nav-link" href="02-memory.html"><span class="num">02</span><span>Agent memory</span></a>
+<a class="nav-link" href="03-uncertainty-reliability.html"><span class="num">03</span><span>Uncertainty</span></a>
+<a class="nav-link" href="04-knowledge-and-data.html"><span class="num">04</span><span>Knowledge & data</span></a>
+<div class="group">Engineering</div>
+<a class="nav-link" href="05-tech-decisions.html"><span class="num">05</span><span>Tech decisions</span></a>
+<a class="nav-link" href="06-eval-benchmarking.html"><span class="num">06</span><span>Eval & benchmarks</span></a>
+<a class="nav-link" href="07-repo-layout.html"><span class="num">07</span><span>Repo layout</span></a>
+<a class="nav-link" href="08-roadmap.html"><span class="num">08</span><span>Roadmap & ops</span></a>
+  </nav>
+  <div class="foot">
+    Rust-native · on-prem · MCP<br/>
+    <a href="https://github.com/NahButch/oncora">github.com/NahButch/oncora</a><br/>
+    <span style="color:#475569">Built 2026-06-03</span>
+  </div>
+</aside>
+<main class="main">
+<div class="page-banner"><img src="assets/svg/pillars.svg" alt="Overview illustration"/></div>
+<article class="content">
+<h1 id="oncora-a-reproducible-uncertainty-aware-agentic-reasoning-platform-for-oncology-drug-discovery">Oncora — A Reproducible, Uncertainty-Aware Agentic Reasoning Platform for Oncology Drug Discovery<a class="headerlink" href="#oncora-a-reproducible-uncertainty-aware-agentic-reasoning-platform-for-oncology-drug-discovery" title="Permanent link">#</a></h1>
+<p>Oncora (Oncology Reasoning Agents) is a Rust-native, on-prem agentic platform that reasons across the heterogeneous evidence of oncology drug discovery — literature, multi-omics, biomolecular knowledge graphs, and clinical imaging — and returns answers that a scientist can actually trust. Every claim carries machine-checkable provenance back to a pinned data snapshot and a pinned model; every answer carries a typed, calibrated confidence; and when the evidence does not support a confident answer, Oncora abstains or escalates rather than confabulates. It is built to be reproducible enough to publish and reliable enough to put in front of a review board.</p>
+<h2 id="problem-statement">Problem statement<a class="headerlink" href="#problem-statement" title="Permanent link">#</a></h2>
+<p>Oncology drug discovery is a multimodal evidence-integration problem under deep uncertainty. A single decision — is this target druggable in this indication, does this variant confer resistance to this compound, is this trial design supported by the mechanistic evidence — depends on fusing peer-reviewed and preprint literature, structured multi-omics measurements, curated bio-ontologies and pathway graphs, and DICOM imaging, each with its own schema, vocabulary, noise model, and access constraints. The data is heterogeneous, versioned, frequently contradictory, and almost always governed by privacy and IP boundaries that forbid it leaving the institution.</p>
+<p>A generic RAG chatbot fails here on every axis that matters. It treats retrieval as a top-k text lookup and ignores structured omics, graph relationships, and imaging entirely. It produces fluent prose with no durable, per-claim provenance, so a reviewer cannot audit <em>why</em> the system said what it said. It has no notion of calibrated uncertainty — it is equally confident when right and when hallucinating — and no principled way to abstain. It is non-reproducible: re-running the same question against a drifting index and a moving model gives different answers with no replay path. And it routinely leaks data to third-party endpoints. None of these are acceptable when the output feeds a go/no-go on a multi-year, multi-million-dollar program, or a manuscript, or a regulatory submission.</p>
+<p>Oncora is the opinionated alternative: a typed reasoning system where uncertainty, provenance, and reproducibility are first-class values in the data model, not afterthoughts in the prompt.</p>
+<h2 id="goals">Goals<a class="headerlink" href="#goals" title="Permanent link">#</a></h2>
+<ul>
+<li>Fuse the four oncology modalities — literature, multi-omics, biomolecular knowledge graph, imaging — into a single reasoning substrate, not four disconnected silos.</li>
+<li>Attach machine-checkable provenance to <strong>every</strong> claim: sources, tool calls, model pin, and data snapshot.</li>
+<li>Treat uncertainty as a typed, calibrated, first-class value that flows end to end and drives an explicit accept / abstain / escalate decision.</li>
+<li>Be reproducible enough to publish: pinned models, pinned data snapshots, content-addressed artifacts, and deterministic replay of any run.</li>
+<li>Persist and reuse knowledge across sessions through a principled, versioned agent memory architecture.</li>
+<li>Run entirely on-prem / in-VPC by default; PHI and IP never cross the trust boundary.</li>
+<li>Beat human experts and computational baselines on speed, accuracy, and reliability, and prove it with a benchmark harness that gates CI.</li>
+<li>Be Rust-native end to end, with all domain tools exposed through MCP.</li>
+</ul>
+<h2 id="non-goals">Non-goals<a class="headerlink" href="#non-goals" title="Permanent link">#</a></h2>
+<ul>
+<li>Not a general-purpose chatbot or open-domain assistant.</li>
+<li>Not a cloud SaaS; no default external API calls, no third-party model endpoints without an explicit, audited egress proxy.</li>
+<li>Not a wet-lab automation, LIMS, or ELN replacement.</li>
+<li>Not a source-of-truth datastore for primary research data; Oncora reads snapshots and never writes back to source systems.</li>
+<li>Not a system that guesses to be helpful; silence (abstention) is a valid, logged outcome.</li>
+<li>Not a polyglot microservice zoo; non-Rust dependencies are isolated behind Rust traits and individually justified.</li>
+</ul>
+<h2 id="the-four-pillars">The four pillars<a class="headerlink" href="#the-four-pillars" title="Permanent link">#</a></h2>
+<h3 id="1-multimodal-reasoning">1. Multimodal reasoning<a class="headerlink" href="#1-multimodal-reasoning" title="Permanent link">#</a></h3>
+<p>Oncora reasons over text (literature), structured omics, the biomolecular knowledge graph, and imaging as one coherent evidence space. Specialist agents (genomics, literature, imaging, clinical) each operate on their native modality through dedicated MCP tools and stores — <code>qdrant</code> for text/RAG, <code>lancedb</code> for multimodal and imaging embeddings, <code>oxigraph</code>/<code>cozo</code> for the KG, <code>polars</code>/<code>duckdb</code> over Parquet for omics — and a hybrid retrieval layer fuses vector, graph, and recency signals into a single relevance score under a token budget. The result is cross-modal evidence assembly, not four parallel chatbots.</p>
+<h3 id="2-agent-memory-architecture">2. Agent memory architecture<a class="headerlink" href="#2-agent-memory-architecture" title="Permanent link">#</a></h3>
+<p>Oncora retains what it learns and makes context-aware decisions across multi-session workflows. Five memory types — working, episodic, semantic, procedural, and provenance/evidence — are backed by purpose-fit stores (<code>redb</code> + CAS for working/episodic, <code>oxigraph</code>/<code>cozo</code> for semantic, <code>cozo</code> + manifests for procedural, Postgres + CAS for provenance) with a disciplined write path (extract → dedup → conflict-resolve → consolidate → decay) and hybrid read path. Memory is keyed by <code>(scientist, project, workflow)</code> and is itself reproducible, because every entry carries its snapshot and model pin.</p>
+<h3 id="3-robustness-uncertainty">3. Robustness &amp; uncertainty<a class="headerlink" href="#3-robustness-uncertainty" title="Permanent link">#</a></h3>
+<p>Oncora produces typed, calibrated confidence and prefers to abstain or escalate over confabulating. Confidence is post-hoc calibrated (tracked via ECE), uncertainty is decomposed into aleatoric / epistemic / retrieval / tool sources, and answers are grounded against deterministic oracles (calculators, KG) and checked for citation entailment. Conformal prediction yields set-valued outputs with an abstention guarantee; thresholds on calibrated confidence, conformal set size, and oracle disagreement drive an explicit <code>Verdict</code> of Accept, Abstain, or Escalate.</p>
+<h3 id="4-reliability-benchmarking">4. Reliability &amp; benchmarking<a class="headerlink" href="#4-reliability-benchmarking" title="Permanent link">#</a></h3>
+<p>Oncora is built to be faster, more accurate, and more reliable than human experts and computational baselines — and to prove it reproducibly. The <code>oncora-eval</code> harness runs golden sets, computes accuracy / calibration / abstention / latency metrics, and gates CI so regressions cannot merge. Pinned models, pinned snapshots, and content-addressed artifacts make every benchmark result a deterministic, replayable, publishable artifact.</p>
+<h3 id="what-makes-this-not-a-rag-chatbot">What makes this not a RAG chatbot<a class="headerlink" href="#what-makes-this-not-a-rag-chatbot" title="Permanent link">#</a></h3>
+<ul>
+<li><strong>Reproducibility.</strong> Every run pins its models and data snapshots and content-addresses its artifacts with BLAKE3, so any answer can be deterministically replayed and any benchmark result re-derived bit-for-bit. A RAG chatbot over a live, drifting index cannot.</li>
+<li><strong>Provenance on every claim.</strong> Each claim carries a typed <code>Provenance { sources, tool_calls, model, snapshot }</code>, recorded to the provenance ledger and episodic memory. A reviewer can trace any sentence back to its sources and the exact tool calls that produced it — there is no unsourced prose.</li>
+<li><strong>Typed uncertainty and abstention.</strong> Confidence is a calibrated <code>Confidence(f64)</code> with a calibration tag, not a vibe in the wording. The system carries uncertainty as a first-class value and can return <code>Verdict::Abstain</code> or <code>Verdict::Escalate</code> with a logged reason instead of inventing an answer.</li>
+</ul>
+<h2 id="cross-cutting-non-negotiables">Cross-cutting non-negotiables<a class="headerlink" href="#cross-cutting-non-negotiables" title="Permanent link">#</a></h2>
+<ul>
+<li><strong>Rust-native end to end.</strong> The whole stack is Rust; non-Rust dependencies are isolated behind Rust traits and individually justified.</li>
+<li><strong>MCP for all domain tools.</strong> Every domain capability is an MCP tool served via <code>rmcp</code>; tool calls are deterministic and audited.</li>
+<li><strong>On-prem / privacy.</strong> VPC-only by default; PHI and IP never leave the trust boundary; no writes to source data; cloud endpoints only through an explicit egress proxy.</li>
+<li><strong>Reproducibility.</strong> Pinned models, pinned data snapshots, content-addressed artifacts (BLAKE3), deterministic replay.</li>
+<li><strong>Typed uncertainty.</strong> Uncertainty is a typed, first-class value flowing through the system, and the system is allowed to abstain.</li>
+</ul>
+<h2 id="system-context">System context<a class="headerlink" href="#system-context" title="Permanent link">#</a></h2>
+<pre class="mermaid">flowchart TB
+  scientist[&quot;Scientist&lt;br/&gt;asks questions&lt;br/&gt;runs workflows&quot;]
+  reviewer[&quot;Reviewer&lt;br/&gt;audits claims&lt;br/&gt;and provenance&quot;]
+  pipeline[&quot;Automated pipeline&lt;br/&gt;batch + CI&quot;]
+
+  subgraph trust[&quot;Trust boundary - on-prem VPC&quot;]
+    oncora[&quot;Oncora platform&lt;br/&gt;agents memory&lt;br/&gt;retrieval KG&lt;br/&gt;uncertainty&quot;]
+
+    subgraph mcp[&quot;In-house MCP servers - rmcp&quot;]
+      vcf[&quot;VCF server&lt;br/&gt;noodles&quot;]
+      dicom[&quot;DICOM server&lt;br/&gt;dicom-rs&quot;]
+      calc[&quot;Calculators&lt;br/&gt;deterministic oracles&quot;]
+    end
+
+    model[&quot;On-prem model endpoint&lt;br/&gt;vLLM TGI&lt;br/&gt;OpenAI-compatible&quot;]
+
+    subgraph data[&quot;Snapshotted data sources&quot;]
+      lit[&quot;Literature&lt;br/&gt;pinned corpus&quot;]
+      omics[&quot;Multi-omics&lt;br/&gt;Parquet&quot;]
+      kg[&quot;Bio-ontologies KG&lt;br/&gt;GO Reactome ChEMBL&quot;]
+      imaging[&quot;DICOM imaging&quot;]
+    end
+  end
+
+  scientist --&gt; oncora
+  reviewer --&gt; oncora
+  pipeline --&gt; oncora
+
+  oncora --&gt; mcp
+  oncora --&gt; model
+  oncora --&gt; data
+
+  vcf --&gt; omics
+  dicom --&gt; imaging</pre>
+<h2 id="document-map">Document map<a class="headerlink" href="#document-map" title="Permanent link">#</a></h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Doc</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="index.html">README.md</a></td>
+<td>Project entry point, quickstart, and orientation.</td>
+</tr>
+<tr>
+<td><a href="00-overview.html">00-overview.md</a></td>
+<td>This executive overview: problem, goals, four pillars, system context.</td>
+</tr>
+<tr>
+<td><a href="01-architecture.html">01-architecture.md</a></td>
+<td>Agent runtime, orchestration topology, crate layout, and service mesh.</td>
+</tr>
+<tr>
+<td><a href="02-memory.html">02-memory.md</a></td>
+<td>The five memory types and their write/read paths.</td>
+</tr>
+<tr>
+<td><a href="03-uncertainty-reliability.html">03-uncertainty-reliability.md</a></td>
+<td>Uncertainty model, calibration, conformal prediction, abstention policy.</td>
+</tr>
+<tr>
+<td><a href="04-knowledge-and-data.html">04-knowledge-and-data.md</a></td>
+<td>Knowledge graph schema, data sources, ingestion, and snapshotting.</td>
+</tr>
+<tr>
+<td><a href="05-tech-decisions.html">05-tech-decisions.md</a></td>
+<td>Locked technology choices with primary/fallback and justifications.</td>
+</tr>
+<tr>
+<td><a href="06-eval-benchmarking.html">06-eval-benchmarking.md</a></td>
+<td>Benchmark harness, golden sets, metrics, and CI gating.</td>
+</tr>
+<tr>
+<td><a href="07-repo-layout.html">07-repo-layout.md</a></td>
+<td>Cargo workspace, crate dependency direction, and trait boundaries.</td>
+</tr>
+<tr>
+<td><a href="08-roadmap.html">08-roadmap.md</a></td>
+<td>Phasing, milestones, and risk-gated rollout.</td>
+</tr>
+</tbody>
+</table></div>
+<div class="pager">
+<a class="prev" href="index.html"><span class="lbl">Previous</span><span class="ttl">Home</span></a>
+<a class="next" href="01-architecture.html"><span class="lbl">Next</span><span class="ttl">Architecture</span></a>
+</div>
+</article>
+</main>
+</div>
+<script>
+function syncScrim(){document.querySelector('.scrim').classList.toggle('show',document.body.classList.contains('nav-open'));
+  document.getElementById('sidebar').classList.toggle('open',document.body.classList.contains('nav-open'));}
+new MutationObserver(syncScrim).observe(document.body,{attributes:true,attributeFilter:['class']});
+</script>
+<script src="assets/js/highlight.min.js"></script>
+<script src="assets/js/rust.min.js"></script>
+<script src="assets/js/mermaid.min.js"></script>
+<script>
+  document.querySelectorAll('pre code').forEach(function(el){ try{ hljs.highlightElement(el); }catch(e){} });
+  mermaid.initialize({
+    startOnLoad:true, securityLevel:'loose',
+    theme:'base',
+    themeVariables:{
+      darkMode:true, background:'#0c1726',
+      primaryColor:'#13233c', primaryTextColor:'#e6edf6', primaryBorderColor:'#2dd4bf',
+      lineColor:'#7dd3fc', secondaryColor:'#16243d', tertiaryColor:'#0e1b2e',
+      fontFamily:"'Segoe UI',system-ui,sans-serif", fontSize:'15px',
+      clusterBkg:'#0e1b2e', clusterBorder:'#2b405f',
+      actorBkg:'#13233c', actorBorder:'#2dd4bf', actorTextColor:'#e6edf6',
+      signalColor:'#9fb3c8', signalTextColor:'#cbd9ea', labelBoxBkgColor:'#13233c', labelBoxBorderColor:'#2b405f'
+    }
+  });
+</script>
+</body>
+</html>

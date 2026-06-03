@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 200" role="img" aria-label="Roadmap from walking skeleton through pillars to hardening" font-family="'Segoe UI',system-ui,sans-serif">
+  <defs>
+    <linearGradient id="rb" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#0f1d33"/><stop offset="1" stop-color="#13233c"/></linearGradient>
+    <linearGradient id="rline" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2dd4bf"/><stop offset="0.5" stop-color="#3b82f6"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient>
+  </defs>
+  <rect width="1200" height="200" rx="14" fill="url(#rb)"/>
+  <line x1="60" y1="100" x2="1140" y2="100" stroke="url(#rline)" stroke-width="4"/>
+  <g text-anchor="middle" font-size="12.5">
+    <g><circle cx="90" cy="100" r="12" fill="#2dd4bf"/><text x="90" y="105" fill="#06302b" font-weight="700" font-size="12">0</text><text x="90" y="140" fill="#cfe9e4" font-weight="600">Skeleton</text><text x="90" y="158" fill="#8fa6bd" font-size="10.5">thin slice</text></g>
+    <g><circle cx="265" cy="100" r="12" fill="#5bc8d6"/><text x="265" y="105" fill="#063" font-weight="700" font-size="12">1</text><text x="265" y="70" fill="#cfe0ff" font-weight="600">Multimodal</text><text x="265" y="54" fill="#8fa6bd" font-size="10.5">ingest</text></g>
+    <g><circle cx="440" cy="100" r="12" fill="#60a5fa"/><text x="440" y="105" fill="#04203f" font-weight="700" font-size="12">2</text><text x="440" y="140" fill="#cfe0ff" font-weight="600">Memory</text></g>
+    <g><circle cx="615" cy="100" r="12" fill="#7c93f0"/><text x="615" y="105" fill="#1a1140" font-weight="700" font-size="12">3</text><text x="615" y="70" fill="#e0d8ff" font-weight="600">Uncertainty</text></g>
+    <g><circle cx="790" cy="100" r="12" fill="#9b86ec"/><text x="790" y="105" fill="#1a1140" font-weight="700" font-size="12">4</text><text x="790" y="140" fill="#e0d8ff" font-weight="600">Eval</text></g>
+    <g><circle cx="965" cy="100" r="12" fill="#b07fe0"/><text x="965" y="105" fill="#1a1140" font-weight="700" font-size="12">5</text><text x="965" y="70" fill="#e0d8ff" font-weight="600">Scale-out</text></g>
+    <g><circle cx="1110" cy="100" r="12" fill="#c77fd6"/><text x="1110" y="105" fill="#2a0a30" font-weight="700" font-size="12">6</text><text x="1110" y="140" fill="#e6d0ee" font-weight="600">Govern</text></g>
+  </g>
+  <text x="600" y="30" fill="#6b8199" font-size="12" text-anchor="middle" letter-spacing="2">RISK-GATED PHASES · EACH RETIRES A NAMED RISK</text>
+</svg>

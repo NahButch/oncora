@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Roadmap & ops · Oncora</title>
+<meta name="description" content="Oncora — Roadmap & ops"/>
+<link rel="icon" href="assets/svg/oncora-mark.svg"/>
+<link rel="stylesheet" href="assets/css/hljs-github-dark.css"/>
+<link rel="stylesheet" href="assets/css/style.css"/>
+</head>
+<body>
+<button class="menu-btn" aria-label="Menu" onclick="document.body.classList.toggle('nav-open')">☰</button>
+<div class="scrim" onclick="document.body.classList.remove('nav-open')"></div>
+<div class="layout">
+<aside class="sidebar" id="sidebar">
+  <a class="brand" href="index.html">
+    <img src="assets/svg/oncora-mark.svg" alt="Oncora"/>
+    <span>
+      <span class="name">Onc<span>ora</span></span>
+      <span class="sub">Oncology Reasoning Agents</span>
+    </span>
+  </a>
+  <nav class="nav">
+<div class="group">Start</div>
+<a class="nav-link" href="index.html"><span>Home</span></a>
+<a class="nav-link" href="00-overview.html"><span class="num">00</span><span>Overview</span></a>
+<div class="group">Architecture</div>
+<a class="nav-link" href="01-architecture.html"><span class="num">01</span><span>Architecture</span></a>
+<a class="nav-link" href="02-memory.html"><span class="num">02</span><span>Agent memory</span></a>
+<a class="nav-link" href="03-uncertainty-reliability.html"><span class="num">03</span><span>Uncertainty</span></a>
+<a class="nav-link" href="04-knowledge-and-data.html"><span class="num">04</span><span>Knowledge & data</span></a>
+<div class="group">Engineering</div>
+<a class="nav-link" href="05-tech-decisions.html"><span class="num">05</span><span>Tech decisions</span></a>
+<a class="nav-link" href="06-eval-benchmarking.html"><span class="num">06</span><span>Eval & benchmarks</span></a>
+<a class="nav-link" href="07-repo-layout.html"><span class="num">07</span><span>Repo layout</span></a>
+<a class="nav-link active" href="08-roadmap.html"><span class="num">08</span><span>Roadmap & ops</span></a>
+  </nav>
+  <div class="foot">
+    Rust-native · on-prem · MCP<br/>
+    <a href="https://github.com/NahButch/oncora">github.com/NahButch/oncora</a><br/>
+    <span style="color:#475569">Built 2026-06-03</span>
+  </div>
+</aside>
+<main class="main">
+<div class="page-banner"><img src="assets/svg/banner-roadmap.svg" alt="Roadmap & ops illustration"/></div>
+<article class="content">
+<h1 id="08-roadmap-deployment-governance">08 — Roadmap, Deployment &amp; Governance<a class="headerlink" href="#08-roadmap-deployment-governance" title="Permanent link">#</a></h1>
+<blockquote>
+<p>Roadmap, deployment/scaling/ops, and security/privacy/governance for <strong>Oncora</strong> (Oncology Reasoning Agents).
+Authoritative decisions live in the internal design canon; this document operationalizes the <strong>Deployment (canonical)</strong> section and the locked crate list.
+Related: <a href="00-overview.html">00-overview.md</a> · <a href="01-architecture.html">01-architecture.md</a> · <a href="02-memory.html">02-memory.md</a> · <a href="03-uncertainty-reliability.html">03-uncertainty-reliability.md</a> · <a href="04-knowledge-and-data.html">04-knowledge-and-data.md</a> · <a href="05-tech-decisions.html">05-tech-decisions.md</a> · <a href="06-eval-benchmarking.html">06-eval-benchmarking.md</a> · <a href="07-repo-layout.html">07-repo-layout.md</a></p>
+</blockquote>
+<p>This document closes the design with the three things a review board asks before approving a build: <strong>how it runs</strong> (deployment, scaling, ops), <strong>how it is controlled</strong> (security, privacy, governance), and <strong>how we get there without betting the program on an unvalidated assumption</strong> (the phased, risk-gated roadmap). It is decisive by construction — every choice traces back to a locked decision in the canon, and every phase carries an explicit de-risking spike so that the riskiest assumptions are tested first, cheaply.</p>
+<hr />
+<h2 id="a-deployment-scaling-ops">A. Deployment, Scaling &amp; Ops<a class="headerlink" href="#a-deployment-scaling-ops" title="Permanent link">#</a></h2>
+<h3 id="a1-deployment-principle">A.1 Deployment principle<a class="headerlink" href="#a1-deployment-principle" title="Permanent link">#</a></h3>
+<p>Oncora ships as <strong>one Cargo workspace, two deployment shapes</strong>. The same crates (<code>oncora-api</code>, <code>oncora-agents</code>, <code>oncora-retrieval</code>, <code>oncora-kg</code>, <code>oncora-memory</code>, …) run as a single all-in-one binary on a laptop and as a fleet of stateless workers behind a load balancer in a VPC — the difference is configuration (<code>figment</code>/<code>config</code> layered env + file), not code. Provider-swappable trait boundaries (<code>ModelProvider</code>, <code>VectorStore</code>, <code>GraphStore</code>, <code>MemoryStore</code>, <code>ArtifactStore</code>) let us swap an embedded dev backend for a clustered production backend without touching the agent runtime. This is the canon's deployment contract: <strong>dev is single-node embedded; scaled is multi-node service-backed; the trust boundary is the VPC.</strong></p>
+<h3 id="a2-dev-topology-single-node-embedded">A.2 Dev topology — single node, embedded<a class="headerlink" href="#a2-dev-topology-single-node-embedded" title="Permanent link">#</a></h3>
+<p>For development, evaluation authoring, and CI, everything runs in-process or as embedded stores. No external services, no GPU required, no network egress. This is the substrate <code>oncora-cli</code> drives for deterministic replay and the substrate <code>oncora-eval</code> runs golden sets against.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Concern</th>
+<th>Dev choice</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Process model</td>
+<td>single all-in-one binary</td>
+<td>Fast inner loop; no orchestration</td>
+</tr>
+<tr>
+<td>Relational + provenance</td>
+<td>SQLite via <code>sqlx</code></td>
+<td>Zero-ops; same <code>sqlx</code> query layer as Postgres</td>
+</tr>
+<tr>
+<td>Text vectors</td>
+<td>embedded <code>hnsw_rs</code> / <code>instant-distance</code></td>
+<td>No qdrant server needed for small corpora</td>
+</tr>
+<tr>
+<td>Multimodal vectors</td>
+<td><code>lancedb</code> local files</td>
+<td>Columnar Lance format on disk</td>
+</tr>
+<tr>
+<td>KG</td>
+<td><code>oxigraph</code> + <code>cozo</code> embedded</td>
+<td>Both run in-process pure-Rust</td>
+</tr>
+<tr>
+<td>Working/episodic</td>
+<td><code>redb</code> file</td>
+<td>Pure-Rust ACID embedded KV</td>
+</tr>
+<tr>
+<td>CAS</td>
+<td>local filesystem object store</td>
+<td><code>blake3</code>-addressed files</td>
+</tr>
+<tr>
+<td>Model</td>
+<td>local <code>mistral.rs</code> / <code>candle</code></td>
+<td>Runs on a workstation; no external endpoint</td>
+</tr>
+<tr>
+<td>Telemetry</td>
+<td><code>tracing</code> to stdout / local OTel</td>
+<td>Inspectable without a collector</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="a3-scaled-topology-multi-node-service-backed">A.3 Scaled topology — multi-node, service-backed<a class="headerlink" href="#a3-scaled-topology-multi-node-service-backed" title="Permanent link">#</a></h3>
+<p>For production the stateless tier scales horizontally and every store becomes a managed service inside the VPC. The canon fixes the membership: stateless <code>oncora-api</code> agent workers, a qdrant cluster, Postgres HA, cozo/oxigraph services, an on-prem GPU model server (vLLM/TGI, OpenAI-compatible), an OTel collector, and an object store for CAS.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Concern</th>
+<th>Scaled choice</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Stateless agent tier</td>
+<td>N replicas of <code>oncora-api</code> + <code>oncora-agents</code> behind LB</td>
+<td>Horizontal scale; no per-replica state</td>
+</tr>
+<tr>
+<td>Retrieval tier</td>
+<td>horizontally scaled <code>oncora-retrieval</code> workers</td>
+<td>Embedding + fusion is CPU-bound and parallel</td>
+</tr>
+<tr>
+<td>Text vectors</td>
+<td>qdrant <strong>cluster</strong> (sharded + replicated)</td>
+<td>Canon primary; payload filtering + HNSW + quantization</td>
+</tr>
+<tr>
+<td>Multimodal vectors</td>
+<td><code>lancedb</code> over shared object store</td>
+<td>Versioned imaging embeddings</td>
+</tr>
+<tr>
+<td>Relational + provenance</td>
+<td>Postgres <strong>HA</strong> (primary + replicas) via <code>sqlx</code></td>
+<td>Durable provenance ledger; failover</td>
+</tr>
+<tr>
+<td>KG</td>
+<td><code>oxigraph</code> service + <code>cozo</code> service</td>
+<td>Shared canonical + evidence graph; cozo time-travel</td>
+</tr>
+<tr>
+<td>Working/episodic</td>
+<td><code>redb</code> per-worker + Postgres rollup; FoundationDB optional at very large scale</td>
+<td>Hot local KV, durable ledger; canon flags FDB as phase-gated</td>
+</tr>
+<tr>
+<td>CAS</td>
+<td>object store (S3-compatible, on-prem)</td>
+<td>Content-addressed, shared, durable</td>
+</tr>
+<tr>
+<td>Model serving</td>
+<td>on-prem GPU vLLM/TGI OpenAI-compatible</td>
+<td>Canon default; behind <code>ModelProvider</code></td>
+</tr>
+<tr>
+<td>Cloud model</td>
+<td>opt-in only, via egress proxy</td>
+<td>PHI never leaves boundary; pinned + audited</td>
+</tr>
+<tr>
+<td>Telemetry</td>
+<td>OTel collector → trace/metric backend</td>
+<td>Correlate runs across workers</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="a4-model-endpoint-abstraction">A.4 Model endpoint abstraction<a class="headerlink" href="#a4-model-endpoint-abstraction" title="Permanent link">#</a></h3>
+<p>Inference is hidden behind the <code>ModelProvider</code> trait (canon §traits). There is exactly one rule that matters for deployment: <strong>on-prem is the default, cloud is opt-in behind the egress proxy</strong>, and the choice is recorded in the run's <code>ModelPin</code> for reproducibility.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>Backend</th>
+<th>Path</th>
+<th>When</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Dev local</td>
+<td><code>mistral.rs</code> / <code>candle</code></td>
+<td>in-process</td>
+<td>Workstation, CI</td>
+</tr>
+<tr>
+<td>On-prem served</td>
+<td>vLLM / TGI OpenAI-compatible via <code>async-openai</code></td>
+<td>VPC-internal HTTP</td>
+<td><strong>Default production</strong></td>
+</tr>
+<tr>
+<td>Cloud opt-in</td>
+<td>Anthropic / OpenAI-compatible</td>
+<td><strong>egress proxy only</strong></td>
+<td>Explicit, audited, non-PHI tasks</td>
+</tr>
+</tbody>
+</table></div>
+<p>The egress proxy is the <strong>only</strong> sanctioned outbound path; it is deny-by-default, allow-lists specific endpoints, strips/blocks PHI, and logs every call. A run that touches a cloud endpoint stamps that fact into its model pin so a reviewer can see it.</p>
+<h3 id="a5-deployment-topology-diagram">A.5 Deployment topology diagram<a class="headerlink" href="#a5-deployment-topology-diagram" title="Permanent link">#</a></h3>
+<p>Two views, with the trust boundary drawn as an explicit subgraph in each.</p>
+<p><strong>Dev — single node, embedded:</strong></p>
+<pre class="mermaid">flowchart TB
+  Dev[&quot;Developer&lt;br/&gt;oncora-cli&quot;]
+  subgraph DevBoundary[&quot;Trust boundary - workstation&quot;]
+    Bin[&quot;oncora all-in-one binary&lt;br/&gt;api agents retrieval kg memory&quot;]
+    subgraph DevStores[&quot;Embedded stores&quot;]
+      Sqlite[&quot;SQLite&lt;br/&gt;sqlx&quot;]
+      Hnsw[&quot;hnsw_rs&lt;br/&gt;text vectors&quot;]
+      LanceL[&quot;lancedb local&quot;]
+      OxiL[&quot;oxigraph embedded&quot;]
+      CozoL[&quot;cozo embedded&quot;]
+      RedbL[&quot;redb file&quot;]
+      FsCas[&quot;filesystem CAS&lt;br/&gt;blake3&quot;]
+    end
+    LocalM[&quot;mistral.rs candle&lt;br/&gt;local model&quot;]
+    Bin --&gt; DevStores
+    Bin --&gt; LocalM
+  end
+  Dev --&gt; Bin</pre>
+<p><strong>Scaled — multi-node, service-backed:</strong></p>
+<pre class="mermaid">flowchart TB
+  Sci[&quot;Scientist&quot;]
+  Rev[&quot;Reviewer&quot;]
+  Pipe[&quot;Automated pipeline&quot;]
+
+  subgraph VPC[&quot;Trust boundary - on-prem VPC&quot;]
+    LB[&quot;Load balancer&lt;br/&gt;TLS auth&quot;]
+
+    subgraph Stateless[&quot;Stateless tier - horizontal&quot;]
+      W1[&quot;oncora-api worker&quot;]
+      W2[&quot;oncora-api worker&quot;]
+      Rtr[&quot;oncora-retrieval workers&quot;]
+    end
+
+    subgraph DataTier[&quot;Stateful services&quot;]
+      Qd[&quot;qdrant cluster&lt;br/&gt;sharded replicated&quot;]
+      LanceS[&quot;lancedb on object store&quot;]
+      PG[&quot;Postgres HA&lt;br/&gt;provenance ledger&quot;]
+      OxiS[&quot;oxigraph service&quot;]
+      CozoS[&quot;cozo service&lt;br/&gt;time travel&quot;]
+      Obj[&quot;Object store&lt;br/&gt;CAS payloads&quot;]
+    end
+
+    GPU[&quot;On-prem GPU model server&lt;br/&gt;vLLM TGI OpenAI-compatible&quot;]
+    OTel[&quot;OTel collector&quot;]
+
+    subgraph MCPTier[&quot;MCP servers - rmcp&quot;]
+      Vcf[&quot;VCF noodles&quot;]
+      Dicom[&quot;DICOM dicom-rs&quot;]
+      Calc[&quot;Calculator oracles&quot;]
+    end
+
+    Egress[&quot;Egress proxy&lt;br/&gt;deny by default&quot;]
+
+    LB --&gt; W1
+    LB --&gt; W2
+    W1 --&gt; Rtr
+    W2 --&gt; Rtr
+    W1 --&gt; GPU
+    W2 --&gt; GPU
+    Rtr --&gt; Qd
+    Rtr --&gt; LanceS
+    Rtr --&gt; OxiS
+    Rtr --&gt; CozoS
+    W1 --&gt; PG
+    W2 --&gt; PG
+    W1 --&gt; MCPTier
+    W2 --&gt; MCPTier
+    W1 --&gt; Obj
+    W1 --&gt; OTel
+    W2 --&gt; OTel
+    Rtr --&gt; OTel
+  end
+
+  Sci --&gt; LB
+  Rev --&gt; LB
+  Pipe --&gt; LB
+  W1 -. &quot;opt-in only&quot; .-&gt; Egress
+  Egress -. audited .-&gt; Cloud[&quot;Cloud model endpoints&quot;]</pre>
+<p>The scaled view preserves the canon's dependency direction: the stateless tier holds the agent runtime, the stateful services are concrete providers behind core traits, and <strong>the only arrow that crosses the trust boundary is the audited egress proxy</strong>.</p>
+<h3 id="a6-scaling-model">A.6 Scaling model<a class="headerlink" href="#a6-scaling-model" title="Permanent link">#</a></h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Tier</th>
+<th>Stateless?</th>
+<th>Scaling axis</th>
+<th>Bottleneck</th>
+<th>Mitigation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>oncora-api</code> + agents</td>
+<td>Yes</td>
+<td>Replicas behind LB</td>
+<td>GPU model concurrency</td>
+<td>Semaphore-bounded model calls; queue + backpressure</td>
+</tr>
+<tr>
+<td><code>oncora-retrieval</code></td>
+<td>Yes</td>
+<td>Replicas</td>
+<td>Embedding throughput</td>
+<td>Batched <code>fastembed</code>; cache hot embeddings</td>
+</tr>
+<tr>
+<td>qdrant</td>
+<td>No</td>
+<td>Shards + replicas</td>
+<td>ANN over large corpora</td>
+<td>Sharding; quantization; payload pre-filter</td>
+</tr>
+<tr>
+<td>Postgres</td>
+<td>No</td>
+<td>Read replicas; vertical primary</td>
+<td>Provenance write volume</td>
+<td>Append-only ledger; partition by time</td>
+</tr>
+<tr>
+<td>cozo / oxigraph</td>
+<td>No</td>
+<td>Vertical; read replicas</td>
+<td>Time-travel query depth</td>
+<td>Snapshot pinning; query budgets</td>
+</tr>
+<tr>
+<td>Model server</td>
+<td>No</td>
+<td>GPUs / model replicas</td>
+<td>Tokens per second</td>
+<td>vLLM continuous batching; per-task model tiering</td>
+</tr>
+<tr>
+<td>Object store CAS</td>
+<td>No</td>
+<td>Native object-store scale</td>
+<td>Throughput</td>
+<td>Native horizontal object store</td>
+</tr>
+</tbody>
+</table></div>
+<p>The agent and retrieval tiers are stateless precisely so they scale by adding replicas; all durable state lives in the data tier. The hard ceiling is <strong>GPU token throughput</strong>, which is why on-prem model throughput is an early de-risking spike (§C) and why uncertainty-driven abstention is also a cost control — the system does not burn tokens self-consisting on a question it should escalate.</p>
+<h3 id="a7-ops-decision-table">A.7 Ops decision table<a class="headerlink" href="#a7-ops-decision-table" title="Permanent link">#</a></h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Concern</th>
+<th>Approach</th>
+<th>Tooling</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Packaging</td>
+<td>Single workspace, per-binary OCI images</td>
+<td><code>cargo</code>, multi-stage container build</td>
+</tr>
+<tr>
+<td>Orchestration</td>
+<td>Declarative deploy of stateless + stateful tiers</td>
+<td>Kubernetes (or Nomad) in VPC</td>
+</tr>
+<tr>
+<td>Config</td>
+<td>Layered env + file, validated at boot</td>
+<td><code>figment</code> / <code>config</code> + <code>serde</code></td>
+</tr>
+<tr>
+<td>Secrets</td>
+<td>No secrets in images/env files; fetched at runtime</td>
+<td>Vault / KMS; short-lived tokens</td>
+</tr>
+<tr>
+<td>Resource isolation</td>
+<td>CPU/mem limits per tier; GPU node pool for model server</td>
+<td>cgroups / k8s requests-limits; taints</td>
+</tr>
+<tr>
+<td>Service-to-service</td>
+<td>mTLS inside the mesh; <code>tonic</code> gRPC</td>
+<td><code>tower</code> middleware; mesh mTLS</td>
+</tr>
+<tr>
+<td>Upgrade</td>
+<td>Rolling deploy of stateless tier; expand-contract migrations for stores</td>
+<td><code>sqlx migrate</code>; rolling update</td>
+</tr>
+<tr>
+<td>Rollback</td>
+<td>Pinned image tags; reversible migrations; replay to confirm</td>
+<td>image pin; <code>oncora-cli</code> replay</td>
+</tr>
+<tr>
+<td>Schema migrations</td>
+<td>Forward-only, backward-compatible per release</td>
+<td><code>sqlx migrate</code></td>
+</tr>
+<tr>
+<td>Observability</td>
+<td>Structured spans + metrics correlated by run id</td>
+<td><code>tracing</code> + <code>tracing-opentelemetry</code> + OTel collector</td>
+</tr>
+<tr>
+<td>Health / readiness</td>
+<td>Liveness + readiness probes per service</td>
+<td><code>axum</code> health endpoints</td>
+</tr>
+<tr>
+<td>Backpressure / overload</td>
+<td>Bounded queues; load-shed before OOM</td>
+<td><code>tower</code> concurrency-limit + <code>tokio</code> semaphores</td>
+</tr>
+<tr>
+<td>Data snapshots</td>
+<td>Immutable, versioned, content-addressed</td>
+<td>CAS + <code>SnapshotId</code> (see <a href="04-knowledge-and-data.html">04-knowledge-and-data.md</a>)</td>
+</tr>
+<tr>
+<td>Backup / DR</td>
+<td>Postgres PITR; object-store versioning; KG snapshot export</td>
+<td>pg backup; object-store replication</td>
+</tr>
+<tr>
+<td>Capacity / cost</td>
+<td>Token budgets per task class; abstention as cost control</td>
+<td>semaphore caps; eval-tracked latency</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Upgrade/rollback discipline.</strong> Because every run pins models, snapshots, and content-addressed artifacts (canon: reproducibility), an upgrade is validated by <strong>replaying a golden set on the new build and diffing against the recorded baseline</strong> (<a href="06-eval-benchmarking.html">06-eval-benchmarking.md</a>). A rollback is therefore never a guess: re-pin the prior image, run the same replay, confirm the diff is empty. Migrations are expand-contract so a rollback never strands the schema.</p>
+<hr />
+<h2 id="b-security-privacy-governance">B. Security, Privacy &amp; Governance<a class="headerlink" href="#b-security-privacy-governance" title="Permanent link">#</a></h2>
+<h3 id="b1-trust-boundary-enforcement">B.1 Trust boundary enforcement<a class="headerlink" href="#b1-trust-boundary-enforcement" title="Permanent link">#</a></h3>
+<p>The trust boundary is the VPC (canon; <a href="01-architecture.html">01-architecture.md</a> §1.2). PHI and IP never leave it. The enforcement is layered and deny-by-default:</p>
+<ul>
+<li><strong>Network.</strong> Stateless tier reachable only via the authenticated LB; data-tier services are not internet-routable; the <strong>egress proxy is the single sanctioned outbound path</strong> and allow-lists specific endpoints.</li>
+<li><strong>Identity.</strong> Every caller (scientist, reviewer, pipeline service identity) authenticates at <code>oncora-api</code>; service-to-service is mTLS.</li>
+<li><strong>Data.</strong> Source snapshots are <strong>read-only</strong>; there is no code path that writes back to a source system (canon non-negotiable).</li>
+<li><strong>Model.</strong> On-prem by default; cloud only through the proxy, with PHI stripped/blocked and the fact recorded in the model pin.</li>
+</ul>
+<h3 id="b2-audit-trail-every-tool-call-recorded">B.2 Audit trail — every tool call recorded<a class="headerlink" href="#b2-audit-trail-every-tool-call-recorded" title="Permanent link">#</a></h3>
+<p>The canon requires deterministic, auditable tool calls. <code>oncora-mcp-host</code> is the single chokepoint: it validates inputs (fuzz-tested via <code>cargo-fuzz</code>), resolves the tool to its MCP server, enforces a <code>tower</code> timeout, executes <strong>deterministically</strong>, and records the call — inputs, outputs, model pin, snapshot, <code>ToolCallId</code>, latency, verdict — to <strong>both</strong> episodic memory (<code>redb</code> + CAS payloads) and the <strong>Postgres provenance ledger</strong>. There is no path to call a domain tool that bypasses this recorder. Determinism + content-addressing means the audit trail is replayable: <code>oncora-cli</code> can re-run any tool call and reproduce its output bit-for-bit.</p>
+<h3 id="b3-audited-tool-call-path-diagram">B.3 Audited tool-call path diagram<a class="headerlink" href="#b3-audited-tool-call-path-diagram" title="Permanent link">#</a></h3>
+<pre class="mermaid">flowchart TB
+  Agent[&quot;Specialist agent&quot;]
+  Host[&quot;oncora-mcp-host&lt;br/&gt;rmcp registry&quot;]
+  Policy{&quot;Policy check&lt;br/&gt;RBAC scope&lt;br/&gt;PHI egress&lt;br/&gt;determinism&quot;}
+  Tool[&quot;MCP tool&lt;br/&gt;VCF DICOM calculator&quot;]
+  subgraph AuditSinks[&quot;Audit sinks&quot;]
+    Ledger[&quot;Postgres&lt;br/&gt;provenance ledger&quot;]
+    Epi[&quot;Episodic memory&lt;br/&gt;redb + CAS&quot;]
+  end
+  Deny[&quot;Reject + log denial&quot;]
+
+  Agent --&gt; Host
+  Host --&gt; Policy
+  Policy -- allow --&gt; Tool
+  Policy -- deny --&gt; Deny
+  Tool --&gt; Host
+  Host --&gt; Ledger
+  Host --&gt; Epi
+  Deny --&gt; Ledger
+  Host --&gt; Agent</pre>
+<p>Both allow and <strong>deny</strong> are recorded — a refused tool call is itself an audit event. The agent only ever receives a tool result after the call has been written to the ledger and episodic log.</p>
+<h3 id="b4-data-lineage-provenance-ledger">B.4 Data lineage &amp; provenance ledger<a class="headerlink" href="#b4-data-lineage-provenance-ledger" title="Permanent link">#</a></h3>
+<p>Provenance is a typed first-class value (<code>Provenance { sources, tool_calls, model, snapshot }</code>, canon). The <strong>Postgres provenance ledger</strong> is the durable lineage store: it links every memory item, claim, and answer to the sources it derived from, the tool calls that produced it, the model pin, and the data snapshot. Because the ledger is append-only and content-addressed (CAS via <code>blake3</code>), lineage is tamper-evident and reconstructable — a reviewer can walk from any returned sentence back through its <code>Evidence</code>, its <code>ToolCallId</code>s, to the exact snapshot lines. This is what makes Oncora reproducible enough to publish and the substrate for the GxP-adjacent expectations in B.7.</p>
+<h3 id="b5-access-control-rbac-redaction-no-writes-to-source">B.5 Access control / RBAC, redaction, no writes to source<a class="headerlink" href="#b5-access-control-rbac-redaction-no-writes-to-source" title="Permanent link">#</a></h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Control area</th>
+<th>Mechanism</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Authentication</td>
+<td>All entry at <code>oncora-api</code>; mTLS service identities</td>
+</tr>
+<tr>
+<td>Authorization</td>
+<td>RBAC at <code>oncora-api</code> and re-checked at the MCP host policy gate</td>
+</tr>
+<tr>
+<td>Roles</td>
+<td>Scientist · Reviewer · Pipeline · Operator, scoped per <code>(project, workflow)</code></td>
+</tr>
+<tr>
+<td>Redaction / PII</td>
+<td>PHI tagged at ingest; redacted in logs/traces; blocked at egress proxy</td>
+</tr>
+<tr>
+<td>Source immutability</td>
+<td>No write path to source systems; snapshots read-only</td>
+</tr>
+<tr>
+<td>Memory scoping</td>
+<td>Memory keyed by <code>(scientist, project, workflow)</code>; cross-tenant reads denied</td>
+</tr>
+<tr>
+<td>Reviewer gate</td>
+<td>Promotions to semantic memory and escalations require reviewer approval</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="b6-governance-decision-table">B.6 Governance decision table<a class="headerlink" href="#b6-governance-decision-table" title="Permanent link">#</a></h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Control</th>
+<th>Mechanism</th>
+<th>Where enforced</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Authentication</td>
+<td>Token / mTLS identity</td>
+<td><code>oncora-api</code> (edge)</td>
+</tr>
+<tr>
+<td>Authorization / RBAC</td>
+<td>Role + project/workflow scope</td>
+<td><code>oncora-api</code> + MCP host policy gate</td>
+</tr>
+<tr>
+<td>Tool-call audit</td>
+<td>Deterministic record of every call</td>
+<td><code>oncora-mcp-host</code> → ledger + episodic</td>
+</tr>
+<tr>
+<td>Data lineage</td>
+<td>Provenance on every claim</td>
+<td>Postgres provenance ledger + CAS</td>
+</tr>
+<tr>
+<td>PHI / PII redaction</td>
+<td>Tag at ingest, redact in logs, block at egress</td>
+<td><code>oncora-ingest</code>, telemetry, egress proxy</td>
+</tr>
+<tr>
+<td>No writes to source</td>
+<td>Read-only snapshot inputs</td>
+<td><code>oncora-ingest</code> (no write path exists)</td>
+</tr>
+<tr>
+<td>Egress control</td>
+<td>Deny-by-default allow-list</td>
+<td>Egress proxy</td>
+</tr>
+<tr>
+<td>Reproducible replay</td>
+<td>Pinned model + snapshot + CAS artifacts</td>
+<td><code>oncora-artifacts</code> + <code>oncora-cli</code></td>
+</tr>
+<tr>
+<td>Abstention / escalation</td>
+<td>Typed <code>Verdict</code>; logged with reason</td>
+<td><code>oncora-uncertainty</code> → responder</td>
+</tr>
+<tr>
+<td>Reviewer adjudication</td>
+<td>Human-in-the-loop approval queue</td>
+<td><code>oncora-api</code> review queue</td>
+</tr>
+<tr>
+<td>Change control</td>
+<td>Replay-gated CI; pinned images</td>
+<td><code>oncora-eval</code> CI gate</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="b7-gxp-adjacent-reproducibility-expectations">B.7 GxP-adjacent reproducibility expectations<a class="headerlink" href="#b7-gxp-adjacent-reproducibility-expectations" title="Permanent link">#</a></h3>
+<p>Oncora is not a validated GxP system out of the box, but it is <strong>built to meet the spirit of the relevant controls</strong> so it can feed regulated work:</p>
+<ul>
+<li><strong>Attributable</strong> — every action carries an identity and is recorded.</li>
+<li><strong>Legible &amp; contemporaneous</strong> — structured spans written at the time of the action (<code>tracing</code>/OTel).</li>
+<li><strong>Original &amp; accurate</strong> — content-addressed artifacts (<code>blake3</code>); no silent overwrite — contradictions are kept as competing evidence (canon memory write path).</li>
+<li><strong>Reproducible</strong> — pinned models + snapshots + deterministic replay yield bit-for-bit re-derivation.</li>
+<li><strong>Auditable</strong> — append-only provenance ledger; every tool call and verdict recoverable.</li>
+</ul>
+<p>This maps cleanly onto ALCOA+ expectations and gives a review board a concrete trail for any answer that influences a go/no-go or a submission.</p>
+<hr />
+<h2 id="c-phased-roadmap">C. Phased Roadmap<a class="headerlink" href="#c-phased-roadmap" title="Permanent link">#</a></h2>
+<p>The roadmap is <strong>risk-gated</strong>: each phase exists to retire a specific class of risk, and each carries explicit <strong>de-risking spikes</strong> that test the canon's youngest/fastest-moving bets (<code>rig</code>, <code>rmcp</code>, <code>swiftide</code>, <code>cozo</code> time-travel, conformal calibration, on-prem model throughput) <em>before</em> we build the thick layer on top of them. A spike that fails routes us to the canon's named fallback — that is why the canon records a fallback for every young dependency.</p>
+<h3 id="phase-0-walking-skeleton">Phase 0 — Walking skeleton<a class="headerlink" href="#phase-0-walking-skeleton" title="Permanent link">#</a></h3>
+<p><strong>Goal.</strong> One end-to-end thin slice that exercises <strong>every crate</strong> at minimal depth, proving the architecture's spine before any pillar is thickened. The slice: a <strong>target-discovery query</strong> that retrieves (hybrid), reasons, calls <strong>one</strong> MCP tool, verifies, and returns a <strong>confidence-scored, cited</strong> answer.</p>
+<p><strong>Scope (minimal of every crate).</strong></p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Crate</th>
+<th>Phase-0 minimum</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>oncora-core</code></td>
+<td><code>Confidence</code>, <code>Provenance</code>, <code>Evidence</code>, <code>Verdict</code>, ids, errors</td>
+</tr>
+<tr>
+<td><code>oncora-telemetry</code></td>
+<td><code>tracing</code> spans to stdout/local OTel</td>
+</tr>
+<tr>
+<td><code>oncora-artifacts</code></td>
+<td><code>blake3</code> CAS over local FS; one manifest type</td>
+</tr>
+<tr>
+<td><code>oncora-mcp-host</code></td>
+<td><code>rmcp</code> host; <strong>one</strong> registered tool; audit to ledger + episodic</td>
+</tr>
+<tr>
+<td><code>oncora-kg</code></td>
+<td><code>oxigraph</code> + <code>cozo</code> embedded; minimal Target/Disease/Evidence schema</td>
+</tr>
+<tr>
+<td><code>oncora-retrieval</code></td>
+<td><code>fastembed</code> embeddings; one vector index; basic vector+graph fusion</td>
+</tr>
+<tr>
+<td><code>oncora-ingest</code></td>
+<td><code>swiftide</code> ingest of one small literature snapshot</td>
+</tr>
+<tr>
+<td><code>oncora-memory</code></td>
+<td>working + episodic + provenance write/read (semantic stub)</td>
+</tr>
+<tr>
+<td><code>oncora-uncertainty</code></td>
+<td>one calibration method; citation-entailment verifier; threshold verdict</td>
+</tr>
+<tr>
+<td><code>oncora-agents</code></td>
+<td><code>rig</code> planner → one specialist → verifier → scorer → responder</td>
+</tr>
+<tr>
+<td><code>oncora-eval</code></td>
+<td>10–20 golden target-discovery questions; accuracy + abstention metrics</td>
+</tr>
+<tr>
+<td><code>oncora-api</code></td>
+<td>one authenticated query endpoint</td>
+</tr>
+<tr>
+<td><code>oncora-cli</code></td>
+<td>submit query + <strong>replay</strong> a recorded run</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Key deliverables.</strong> A single query returns an <code>Evidence</code>-bearing answer with a calibrated <code>Confidence</code>, citations resolvable to the snapshot, a full audit trail in the ledger, and a <code>Verdict</code> that can be <code>Abstain</code>. Deterministic replay reproduces the run from CAS.</p>
+<p><strong>Exit / done-criteria.</strong>
+- A target-discovery query runs end-to-end and returns a cited, confidence-scored answer <strong>or</strong> a logged abstention.
+- The single MCP tool call is recorded to ledger <strong>and</strong> episodic memory.
+- <code>oncora-cli replay</code> reproduces the run bit-for-bit from pinned model + snapshot + CAS.
+- The golden set runs in CI and gates the build.</p>
+<p><strong>Risks &amp; de-risking spikes.</strong>
+- <strong>Spike: verify <code>rig</code> tool-calling + streaming</strong> against an OpenAI-compatible on-prem endpoint. If immature → fall back to in-house orchestrator on raw <code>async-openai</code> (canon fallback).
+- <strong>Spike: verify <code>rmcp</code> tool maturity</strong> — register, route, audit one tool round-trip. If gaps → wrap behind <code>ToolHost</code> and patch minimally.
+- <strong>Risk:</strong> the spine leaks abstraction (a store type bleeds into <code>oncora-agents</code>). <em>Mitigation:</em> trait-boundary review before Phase 1.</p>
+<h3 id="phase-1-multimodal-ingestion-literature-omics-imaging">Phase 1 — Multimodal ingestion (literature → omics → imaging)<a class="headerlink" href="#phase-1-multimodal-ingestion-literature-omics-imaging" title="Permanent link">#</a></h3>
+<p><strong>Goal.</strong> Thicken pillar 1: turn the single-modality skeleton into true cross-modal evidence assembly.</p>
+<p><strong>Key deliverables.</strong> <code>swiftide</code> pipelines for literature, then structured omics (<code>polars</code>/<code>duckdb</code> over Parquet, <code>noodles</code> VCF behind an MCP server), then imaging (<code>dicom-rs</code> behind an MCP server, <code>lancedb</code> multimodal embeddings). KG schema fully populated (Target/Disease/Pathway/Compound/Variant/Trial/Cohort + edges). Hybrid retrieval fuses vector + graph + recency across all modalities.</p>
+<p><strong>Exit criteria.</strong> A query that requires literature <strong>and</strong> omics <strong>and</strong> imaging evidence returns one fused, cited answer; each modality is content-addressed and snapshot-tagged; no source is ever written to.</p>
+<p><strong>Risks &amp; spikes.</strong>
+- <strong>Spike: VCF/DICOM parser robustness</strong> — fuzz <code>noodles</code>/<code>dicom-rs</code> inputs (<code>cargo-fuzz</code>) on real-world malformed files.
+- <strong>Spike: <code>lancedb</code> multimodal embedding scale</strong> on a representative imaging set.
+- <strong>Spike: <code>swiftide</code> pipeline contract</strong> — confirm we own the contract; fall back to a custom <code>tokio</code> pipeline if it constrains us (canon fallback).
+- <strong>Risk:</strong> entity resolution across vocabularies (HGNC/UMLS/MONDO). <em>Mitigation:</em> oxigraph URI grounding + dedup in the memory write path.</p>
+<h3 id="phase-2-memory-architecture">Phase 2 — Memory architecture<a class="headerlink" href="#phase-2-memory-architecture" title="Permanent link">#</a></h3>
+<p><strong>Goal.</strong> Thicken pillar 2: full five-type memory with the canonical write/read paths and cross-session persistence.</p>
+<p><strong>Key deliverables.</strong> Working/episodic/semantic/procedural/provenance memory wired to their canonical stores. Write path: extract → dedup (embedding + KG entity resolution) → conflict resolution (recency + authority + confidence; contradictions kept) → consolidation (working→episodic→semantic) → decay/forgetting (tombstones, never lose provenance). Read path: hybrid retrieval fused under token budget, keyed by <code>(scientist, project, workflow)</code>. See <a href="02-memory.html">02-memory.md</a>.</p>
+<p><strong>Exit criteria.</strong> A second session on the same <code>(scientist, project, workflow)</code> demonstrably reuses prior semantic + procedural memory; conflicting facts are retained as competing evidence (not overwritten); every memory entry carries snapshot + model pin and is replayable.</p>
+<p><strong>Risks &amp; spikes.</strong>
+- <strong>Spike: <code>cozo</code> time-travel at scale</strong> — point-in-time evidence-graph queries over a realistically sized graph; this is the canon's named differentiator and its biggest young-tech bet. Fallback: <code>indradb</code> + explicit versioning.
+- <strong>Spike: conflict-resolution policy</strong> — validate recency/authority/confidence weighting on adversarial contradictory inputs.
+- <strong>Risk:</strong> decay erases something a reviewer needs. <em>Mitigation:</em> soft-delete + tombstones; provenance never deleted.</p>
+<h3 id="phase-3-uncertainty-verification">Phase 3 — Uncertainty &amp; verification<a class="headerlink" href="#phase-3-uncertainty-verification" title="Permanent link">#</a></h3>
+<p><strong>Goal.</strong> Thicken pillar 3: typed, calibrated uncertainty driving accept/abstain/escalate.</p>
+<p><strong>Key deliverables.</strong> Post-hoc calibration with ECE tracking; conformal prediction for set-valued outputs + abstention guarantee; verifiers (citation-grounding/NLI entailment, deterministic oracle grounding via calculators/KG); decomposed uncertainty (aleatoric/epistemic/retrieval/tool); configurable abstention/escalation thresholds per task class. See <a href="03-uncertainty-reliability.html">03-uncertainty-reliability.md</a>.</p>
+<p><strong>Exit criteria.</strong> Confidence is calibrated (ECE below target on a held-out set); conformal sets carry the guaranteed coverage; oracle disagreement reliably triggers <code>Escalate</code>; every abstention is logged with a reason.</p>
+<p><strong>Risks &amp; spikes.</strong>
+- <strong>Spike: conformal calibration</strong> — confirm coverage guarantee holds on oncology golden sets; tune set-size thresholds.
+- <strong>Spike: NLI entailment verifier</strong> quality on biomedical claims (false-accept rate).
+- <strong>Risk:</strong> miscalibration in the long tail. <em>Mitigation:</em> ECE gating in CI; abstain when conformal set is wide.</p>
+<h3 id="phase-4-eval-benchmarking">Phase 4 — Eval &amp; benchmarking<a class="headerlink" href="#phase-4-eval-benchmarking" title="Permanent link">#</a></h3>
+<p><strong>Goal.</strong> Thicken pillar 4: prove faster/more-accurate/more-reliable vs human experts and computational baselines, reproducibly.</p>
+<p><strong>Key deliverables.</strong> Expanded golden sets across modalities and task classes; metrics for accuracy, calibration (ECE), abstention quality, and latency; human-expert and computational baselines; CI gate that blocks regressions. See <a href="06-eval-benchmarking.html">06-eval-benchmarking.md</a>.</p>
+<p><strong>Exit criteria.</strong> Benchmarks beat the named baselines on the agreed metrics; results are deterministically replayable; a regression cannot merge.</p>
+<p><strong>Risks &amp; spikes.</strong>
+- <strong>Spike: golden-set construction</strong> with domain experts — the benchmark's validity is the risk, not the harness.
+- <strong>Risk:</strong> benchmark overfit. <em>Mitigation:</em> held-out sets; periodic expert refresh.</p>
+<h3 id="phase-5-deployment-scale-out">Phase 5 — Deployment scale-out<a class="headerlink" href="#phase-5-deployment-scale-out" title="Permanent link">#</a></h3>
+<p><strong>Goal.</strong> Move from single-node embedded to the canon's multi-node scaled topology (A.3).</p>
+<p><strong>Key deliverables.</strong> Stateless <code>oncora-api</code>/agent workers behind LB; qdrant cluster; Postgres HA; cozo/oxigraph services; on-prem GPU model server (vLLM/TGI); OTel collector; object-store CAS; egress proxy. Rolling upgrades with expand-contract migrations; replay-validated rollback. FoundationDB evaluated only if memory scale demands it (canon: optional, ops-heavy, phase-gated).</p>
+<p><strong>Exit criteria.</strong> Horizontal scale demonstrated under load; failover of Postgres and qdrant verified; an upgrade is validated by golden-set replay diff; rollback confirmed.</p>
+<p><strong>Risks &amp; spikes.</strong>
+- <strong>Spike: on-prem model throughput</strong> — measure tokens/sec under realistic concurrency on the target GPUs; size the semaphore caps. This is the production cost/latency ceiling.
+- <strong>Spike: qdrant cluster</strong> sharding/replication under representative corpus size.
+- <strong>Spike (TODO): pure-Rust SQLite migration.</strong> <em>Strategy:</em> (1) build and <strong>thoroughly test</strong> the system on the <strong>C</strong> SQLite (via <code>sqlx</code>/<code>rusqlite</code>) so the relational/<code>MemoryStore</code> seam is exercised and stable; (2) <strong>swap in a pure-Rust SQLite</strong> (Turso's rewrite, ex-<code>limbo</code>) behind the same seam and <strong>re-run the full test suite</strong> (unit, <code>proptest</code>, golden-set replay) against it; (3) <strong>report any incompatibilities or bugs upstream</strong> to the Rust-SQLite project to help them succeed. <em>Exit:</em> either the pure-Rust engine passes the suite (advance it from dev-only toward a supported relational backend), or the gaps are documented and filed upstream while C SQLite remains the dev fallback. <em>Verify first:</em> current maturity/feature-coverage and project name/status of the Rust rewrite (see <a href="05-tech-decisions.html">05-tech-decisions.md</a>).
+- <strong>Risk:</strong> stateful-service ops burden. <em>Mitigation:</em> defer FoundationDB; keep stores swappable behind traits.</p>
+<h3 id="phase-6-governance-hardening">Phase 6 — Governance hardening<a class="headerlink" href="#phase-6-governance-hardening" title="Permanent link">#</a></h3>
+<p><strong>Goal.</strong> Lock down the security/privacy/governance controls in §B to review-board grade.</p>
+<p><strong>Key deliverables.</strong> Full RBAC with project/workflow scoping; egress-proxy enforcement with PHI blocking; complete provenance ledger + lineage walk; reviewer adjudication queue; ALCOA+-aligned reproducibility evidence; change-control via replay-gated CI.</p>
+<p><strong>Exit criteria.</strong> An external reviewer can trace any returned claim to its sources/tool-calls/snapshot; PHI demonstrably cannot leave the boundary; every tool call (allow and deny) is auditable; a validated replay reproduces any historical run.</p>
+<p><strong>Risks &amp; spikes.</strong>
+- <strong>Spike: redaction completeness</strong> — adversarial PHI-leak testing against logs/traces and the egress proxy.
+- <strong>Risk:</strong> audit-trail gaps under failure. <em>Mitigation:</em> record-before-return invariant at the MCP host; property-test it (<code>proptest</code>).</p>
+<h3 id="phase-timeline">Phase timeline<a class="headerlink" href="#phase-timeline" title="Permanent link">#</a></h3>
+<pre class="mermaid">gantt
+  title Oncora phased roadmap
+  dateFormat YYYY-MM-DD
+  axisFormat %b %y
+  section Skeleton
+  Phase 0 walking skeleton      :p0, 2026-06-01, 60d
+  section Pillars
+  Phase 1 multimodal ingest     :p1, after p0, 75d
+  Phase 2 memory architecture   :p2, after p1, 75d
+  Phase 3 uncertainty verify    :p3, after p2, 75d
+  Phase 4 eval benchmarking     :p4, after p3, 60d
+  section Hardening
+  Phase 5 deployment scale-out  :p5, after p4, 75d
+  Phase 6 governance hardening  :p6, after p4, 90d</pre>
+<h3 id="milestones-table">Milestones table<a class="headerlink" href="#milestones-table" title="Permanent link">#</a></h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Milestone</th>
+<th>Phase</th>
+<th>Success metric</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Spine proven</td>
+<td>0</td>
+<td>End-to-end cited answer + replay bit-for-bit</td>
+</tr>
+<tr>
+<td><code>rig</code> + <code>rmcp</code> validated</td>
+<td>0</td>
+<td>One tool round-trip audited; fallback decision recorded</td>
+</tr>
+<tr>
+<td>Cross-modal answer</td>
+<td>1</td>
+<td>One fused answer over literature + omics + imaging</td>
+</tr>
+<tr>
+<td>Cross-session memory</td>
+<td>2</td>
+<td>Session 2 reuses semantic + procedural memory</td>
+</tr>
+<tr>
+<td><code>cozo</code> time-travel proven</td>
+<td>2</td>
+<td>Point-in-time query at target graph size within budget</td>
+</tr>
+<tr>
+<td>Calibrated uncertainty</td>
+<td>3</td>
+<td>ECE below target; conformal coverage holds</td>
+</tr>
+<tr>
+<td>Beats baselines</td>
+<td>4</td>
+<td>Wins accuracy/calibration/latency vs human + computational baselines</td>
+</tr>
+<tr>
+<td>Scaled topology live</td>
+<td>5</td>
+<td>Horizontal scale + failover + replay-validated upgrade</td>
+</tr>
+<tr>
+<td>On-prem throughput sized</td>
+<td>5</td>
+<td>Tokens/sec measured; semaphore caps set</td>
+</tr>
+<tr>
+<td>Review-board ready</td>
+<td>6</td>
+<td>Full lineage walk + PHI-egress block verified</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="biggest-risks-how-we-de-risk-early">Biggest risks &amp; how we de-risk early<a class="headerlink" href="#biggest-risks-how-we-de-risk-early" title="Permanent link">#</a></h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Risk</th>
+<th>Severity</th>
+<th>Phase exposed</th>
+<th>De-risk early</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rig</code> tool-calling/streaming immature</td>
+<td>High</td>
+<td>0</td>
+<td>Phase-0 spike; fall back to in-house orchestrator on <code>async-openai</code></td>
+</tr>
+<tr>
+<td><code>rmcp</code> host/tool gaps</td>
+<td>High</td>
+<td>0</td>
+<td>Phase-0 spike; wrap behind <code>ToolHost</code> trait</td>
+</tr>
+<tr>
+<td><code>cozo</code> time-travel does not scale</td>
+<td>High</td>
+<td>2</td>
+<td>Phase-2 spike at target graph size; fallback <code>indradb</code> + versioning</td>
+</tr>
+<tr>
+<td>Conformal coverage fails on domain data</td>
+<td>High</td>
+<td>3</td>
+<td>Phase-3 calibration spike on oncology golden sets</td>
+</tr>
+<tr>
+<td>On-prem GPU throughput too low</td>
+<td>High</td>
+<td>5</td>
+<td>Phase-5 throughput spike; abstention as cost control</td>
+</tr>
+<tr>
+<td>Parser fragility on real VCF/DICOM</td>
+<td>Medium</td>
+<td>1</td>
+<td><code>cargo-fuzz</code> parser fuzzing on malformed real files</td>
+</tr>
+<tr>
+<td>PHI leak via logs or egress</td>
+<td>High</td>
+<td>6</td>
+<td>Adversarial redaction testing; deny-by-default egress proxy</td>
+</tr>
+<tr>
+<td>Pure-Rust SQLite not yet drop-in</td>
+<td>Low</td>
+<td>5</td>
+<td>Ship on C SQLite first, test thoroughly; then swap Rust SQLite behind the same seam, re-test, and report issues upstream</td>
+</tr>
+<tr>
+<td>Audit-trail gap under failure</td>
+<td>High</td>
+<td>6</td>
+<td>Record-before-return invariant; <code>proptest</code> the MCP host</td>
+</tr>
+<tr>
+<td>Benchmark validity / overfit</td>
+<td>Medium</td>
+<td>4</td>
+<td>Expert-built held-out golden sets; periodic refresh</td>
+</tr>
+<tr>
+<td>Abstraction leak across crate boundaries</td>
+<td>Medium</td>
+<td>0</td>
+<td>Trait-boundary review gate before each pillar phase</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<p>The throughline of this roadmap is the canon's discipline made operational: <strong>build the spine first, thicken one pillar at a time, and put the riskiest young-tech bet on trial before you depend on it.</strong> Every phase retires a named risk; every young dependency has a spike and a fallback; and every deployment and governance control traces to a non-negotiable in the design canon. See <a href="01-architecture.html">01-architecture.md</a> for the runtime this roadmap builds and <a href="06-eval-benchmarking.html">06-eval-benchmarking.md</a> for the gate that keeps it honest.</p>
+<div class="pager">
+<a class="prev" href="07-repo-layout.html"><span class="lbl">Previous</span><span class="ttl">Repo layout</span></a>
+</div>
+</article>
+</main>
+</div>
+<script>
+function syncScrim(){document.querySelector('.scrim').classList.toggle('show',document.body.classList.contains('nav-open'));
+  document.getElementById('sidebar').classList.toggle('open',document.body.classList.contains('nav-open'));}
+new MutationObserver(syncScrim).observe(document.body,{attributes:true,attributeFilter:['class']});
+</script>
+<script src="assets/js/highlight.min.js"></script>
+<script src="assets/js/rust.min.js"></script>
+<script src="assets/js/mermaid.min.js"></script>
+<script>
+  document.querySelectorAll('pre code').forEach(function(el){ try{ hljs.highlightElement(el); }catch(e){} });
+  mermaid.initialize({
+    startOnLoad:true, securityLevel:'loose',
+    theme:'base',
+    themeVariables:{
+      darkMode:true, background:'#0c1726',
+      primaryColor:'#13233c', primaryTextColor:'#e6edf6', primaryBorderColor:'#2dd4bf',
+      lineColor:'#7dd3fc', secondaryColor:'#16243d', tertiaryColor:'#0e1b2e',
+      fontFamily:"'Segoe UI',system-ui,sans-serif", fontSize:'15px',
+      clusterBkg:'#0e1b2e', clusterBorder:'#2b405f',
+      actorBkg:'#13233c', actorBorder:'#2dd4bf', actorTextColor:'#e6edf6',
+      signalColor:'#9fb3c8', signalTextColor:'#cbd9ea', labelBoxBkgColor:'#13233c', labelBoxBorderColor:'#2b405f'
+    }
+  });
+</script>
+</body>
+</html>

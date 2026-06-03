@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Home · Oncora</title>
+<meta name="description" content="Oncora — reproducible, uncertainty-aware agentic platform for oncology drug discovery."/>
+<link rel="icon" href="assets/svg/oncora-mark.svg"/>
+<link rel="stylesheet" href="assets/css/hljs-github-dark.css"/>
+<link rel="stylesheet" href="assets/css/style.css"/>
+</head>
+<body>
+<button class="menu-btn" aria-label="Menu" onclick="document.body.classList.toggle('nav-open')">☰</button>
+<div class="scrim" onclick="document.body.classList.remove('nav-open')"></div>
+<div class="layout">
+<aside class="sidebar" id="sidebar">
+  <a class="brand" href="index.html">
+    <img src="assets/svg/oncora-mark.svg" alt="Oncora"/>
+    <span>
+      <span class="name">Onc<span>ora</span></span>
+      <span class="sub">Oncology Reasoning Agents</span>
+    </span>
+  </a>
+  <nav class="nav">
+<div class="group">Start</div>
+<a class="nav-link active" href="index.html"><span>Home</span></a>
+<a class="nav-link" href="00-overview.html"><span class="num">00</span><span>Overview</span></a>
+<div class="group">Architecture</div>
+<a class="nav-link" href="01-architecture.html"><span class="num">01</span><span>Architecture</span></a>
+<a class="nav-link" href="02-memory.html"><span class="num">02</span><span>Agent memory</span></a>
+<a class="nav-link" href="03-uncertainty-reliability.html"><span class="num">03</span><span>Uncertainty</span></a>
+<a class="nav-link" href="04-knowledge-and-data.html"><span class="num">04</span><span>Knowledge & data</span></a>
+<div class="group">Engineering</div>
+<a class="nav-link" href="05-tech-decisions.html"><span class="num">05</span><span>Tech decisions</span></a>
+<a class="nav-link" href="06-eval-benchmarking.html"><span class="num">06</span><span>Eval & benchmarks</span></a>
+<a class="nav-link" href="07-repo-layout.html"><span class="num">07</span><span>Repo layout</span></a>
+<a class="nav-link" href="08-roadmap.html"><span class="num">08</span><span>Roadmap & ops</span></a>
+  </nav>
+  <div class="foot">
+    Rust-native · on-prem · MCP<br/>
+    <a href="https://github.com/NahButch/oncora">github.com/NahButch/oncora</a><br/>
+    <span style="color:#475569">Built 2026-06-03</span>
+  </div>
+</aside>
+<main class="main">
+
+<section class="hero">
+  <div class="eyebrow">Oncology Reasoning Agents</div>
+  <h1>A reproducible, uncertainty-aware agentic platform for oncology drug discovery</h1>
+  <p class="lede">Rust-native, on-prem reasoning agents that work across literature, multi-omics,
+  a biomolecular knowledge graph, and imaging — every claim carries provenance and calibrated
+  confidence, and the system abstains rather than confabulates.</p>
+  <div class="hero-cta">
+    <a class="btn primary" href="00-overview.html">Read the overview →</a>
+    <a class="btn" href="01-architecture.html">Architecture</a>
+    <a class="btn" href="https://github.com/NahButch/oncora">GitHub</a>
+  </div>
+  <div class="badges">
+    <span class="badge"><b>Rust</b> end to end</span>
+    <span class="badge">tools via <b>MCP</b> (rmcp)</span>
+    <span class="badge"><b>on-prem</b> / VPC-only</span>
+    <span class="badge">typed <b>uncertainty</b></span>
+    <span class="badge"><b>reproducible</b> replay</span>
+  </div>
+</section>
+<div class="hero-art">
+  <img src="assets/svg/hero-overview.svg" alt="Publications and multimodal data flow into the Oncora engine and out to databases, AI, and a cited confidence-scored answer"/>
+</div>
+<section class="content" style="max-width:1100px">
+  <h2 style="border:none">The four pillars</h2>
+  <div class="page-banner" style="padding:0;margin:0 0 8px"><img src="assets/svg/pillars.svg" alt="The four pillars"/></div>
+  <h2>Explore the design</h2>
+  <div class="cards">
+<a class="card" href="00-overview.html">
+  <div class="k">00-overview</div>
+  <h3>Overview</h3>
+  <p>Executive summary, goals, the four pillars.</p>
+</a>
+<a class="card" href="01-architecture.html">
+  <div class="k">01-architecture</div>
+  <h3>Architecture</h3>
+  <p>Containers, agent runtime, the end-to-end workflow.</p>
+</a>
+<a class="card" href="02-memory.html">
+  <div class="k">02-memory</div>
+  <h3>Agent memory</h3>
+  <p>Five memory types, write/consolidation and hybrid read.</p>
+</a>
+<a class="card" href="03-uncertainty-reliability.html">
+  <div class="k">03-uncertainty-reliability</div>
+  <h3>Uncertainty</h3>
+  <p>Typed confidence, calibration, abstain/escalate.</p>
+</a>
+<a class="card" href="04-knowledge-and-data.html">
+  <div class="k">04-knowledge-and-data</div>
+  <h3>Knowledge & data</h3>
+  <p>Ingestion, KG schema, hybrid retrieval.</p>
+</a>
+<a class="card" href="05-tech-decisions.html">
+  <div class="k">05-tech-decisions</div>
+  <h3>Tech decisions</h3>
+  <p>Rust survey, decision tables, risk register.</p>
+</a>
+<a class="card" href="06-eval-benchmarking.html">
+  <div class="k">06-eval-benchmarking</div>
+  <h3>Eval & benchmarks</h3>
+  <p>Golden sets, metrics, CI gating, replay.</p>
+</a>
+<a class="card" href="07-repo-layout.html">
+  <div class="k">07-repo-layout</div>
+  <h3>Repo layout</h3>
+  <p>Cargo workspace, crates, trait boundaries.</p>
+</a>
+<a class="card" href="08-roadmap.html">
+  <div class="k">08-roadmap</div>
+  <h3>Roadmap & ops</h3>
+  <p>Deployment, governance, phased roadmap.</p>
+</a>
+  </div>
+  <blockquote>This site is generated from the Markdown specification in <code>docs/</code>.
+  The Mermaid diagrams and SVG illustrations render in the browser; serve the folder over http for full fidelity.</blockquote>
+</section>
+
+</main>
+</div>
+<script>
+function syncScrim(){document.querySelector('.scrim').classList.toggle('show',document.body.classList.contains('nav-open'));
+  document.getElementById('sidebar').classList.toggle('open',document.body.classList.contains('nav-open'));}
+new MutationObserver(syncScrim).observe(document.body,{attributes:true,attributeFilter:['class']});
+</script>
+<script src="assets/js/highlight.min.js"></script>
+<script src="assets/js/rust.min.js"></script>
+<script src="assets/js/mermaid.min.js"></script>
+<script>
+  document.querySelectorAll('pre code').forEach(function(el){ try{ hljs.highlightElement(el); }catch(e){} });
+  mermaid.initialize({
+    startOnLoad:true, securityLevel:'loose',
+    theme:'base',
+    themeVariables:{
+      darkMode:true, background:'#0c1726',
+      primaryColor:'#13233c', primaryTextColor:'#e6edf6', primaryBorderColor:'#2dd4bf',
+      lineColor:'#7dd3fc', secondaryColor:'#16243d', tertiaryColor:'#0e1b2e',
+      fontFamily:"'Segoe UI',system-ui,sans-serif", fontSize:'15px',
+      clusterBkg:'#0e1b2e', clusterBorder:'#2b405f',
+      actorBkg:'#13233c', actorBorder:'#2dd4bf', actorTextColor:'#e6edf6',
+      signalColor:'#9fb3c8', signalTextColor:'#cbd9ea', labelBoxBkgColor:'#13233c', labelBoxBorderColor:'#2b405f'
+    }
+  });
+</script>
+</body>
+</html>

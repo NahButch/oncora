@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Eval & benchmarks · Oncora</title>
+<meta name="description" content="Oncora — Eval & benchmarks"/>
+<link rel="icon" href="assets/svg/oncora-mark.svg"/>
+<link rel="stylesheet" href="assets/css/hljs-github-dark.css"/>
+<link rel="stylesheet" href="assets/css/style.css"/>
+</head>
+<body>
+<button class="menu-btn" aria-label="Menu" onclick="document.body.classList.toggle('nav-open')">☰</button>
+<div class="scrim" onclick="document.body.classList.remove('nav-open')"></div>
+<div class="layout">
+<aside class="sidebar" id="sidebar">
+  <a class="brand" href="index.html">
+    <img src="assets/svg/oncora-mark.svg" alt="Oncora"/>
+    <span>
+      <span class="name">Onc<span>ora</span></span>
+      <span class="sub">Oncology Reasoning Agents</span>
+    </span>
+  </a>
+  <nav class="nav">
+<div class="group">Start</div>
+<a class="nav-link" href="index.html"><span>Home</span></a>
+<a class="nav-link" href="00-overview.html"><span class="num">00</span><span>Overview</span></a>
+<div class="group">Architecture</div>
+<a class="nav-link" href="01-architecture.html"><span class="num">01</span><span>Architecture</span></a>
+<a class="nav-link" href="02-memory.html"><span class="num">02</span><span>Agent memory</span></a>
+<a class="nav-link" href="03-uncertainty-reliability.html"><span class="num">03</span><span>Uncertainty</span></a>
+<a class="nav-link" href="04-knowledge-and-data.html"><span class="num">04</span><span>Knowledge & data</span></a>
+<div class="group">Engineering</div>
+<a class="nav-link" href="05-tech-decisions.html"><span class="num">05</span><span>Tech decisions</span></a>
+<a class="nav-link active" href="06-eval-benchmarking.html"><span class="num">06</span><span>Eval & benchmarks</span></a>
+<a class="nav-link" href="07-repo-layout.html"><span class="num">07</span><span>Repo layout</span></a>
+<a class="nav-link" href="08-roadmap.html"><span class="num">08</span><span>Roadmap & ops</span></a>
+  </nav>
+  <div class="foot">
+    Rust-native · on-prem · MCP<br/>
+    <a href="https://github.com/NahButch/oncora">github.com/NahButch/oncora</a><br/>
+    <span style="color:#475569">Built 2026-06-03</span>
+  </div>
+</aside>
+<main class="main">
+<div class="page-banner"><img src="assets/svg/banner-eval.svg" alt="Eval & benchmarks illustration"/></div>
+<article class="content">
+<h1 id="oncora-evaluation-benchmarking">Oncora — Evaluation &amp; Benchmarking<a class="headerlink" href="#oncora-evaluation-benchmarking" title="Permanent link">#</a></h1>
+<p>This document specifies the <strong>Reliability &amp; benchmarking</strong> pillar: how Oncora scores its agent output against <strong>human-expert decisions</strong> and <strong>existing computational baselines</strong>, and how it does so reproducibly enough to publish. The companion of this pillar is <a href="03-uncertainty-reliability.html">03-uncertainty-reliability.md</a>, which owns the calibration and abstention <em>machinery</em>; this document owns how we <em>measure, gate, and prove</em> it. Phasing of the benchmark program lives in <a href="08-roadmap.html">08-roadmap.md</a>.</p>
+<p>The thesis is blunt: a claim that Oncora is "faster, more accurate, more reliable than experts and baselines" is worthless unless every reported number is (a) computed on a versioned, expert-labeled golden set, (b) compared against named baselines on a fair footing, (c) measured for calibration and abstention quality, not just accuracy, and (d) reproducible bit-for-bit from a manifest by a third party. The <code>oncora-eval</code> crate exists to make those four things non-negotiable and CI-enforced.</p>
+<h2 id="goal-and-scope">Goal and scope<a class="headerlink" href="#goal-and-scope" title="Permanent link">#</a></h2>
+<ul>
+<li><strong>Score against two references, always.</strong> Every benchmark task carries a <strong>human-expert</strong> reference decision/label and at least one <strong>existing computational baseline</strong> as a comparison arm. Agent-vs-self is not a benchmark.</li>
+<li><strong>Measure the right axes.</strong> Accuracy/F1 <em>and</em> calibration (ECE) <em>and</em> abstention quality (coverage–risk, selective accuracy, AURC) <em>and</em> latency <em>and</em> cost. A system that is accurate but overconfident, or accurate but never abstains, fails the bar.</li>
+<li><strong>Be publishable.</strong> A reviewer with the manifest and the snapshots can re-derive any figure in the paper with one command, and trace every reported number to the exact run that produced it.</li>
+<li><strong>Gate the codebase.</strong> Regressions in accuracy, calibration, or abstention quality block merges. Latency regressions are caught by <code>criterion</code> microbenchmarks.</li>
+</ul>
+<p>Out of scope here: the calibration methods themselves (conformal prediction, post-hoc calibration, ECE definition) — those are specified in <a href="03-uncertainty-reliability.html">03-uncertainty-reliability.md</a> and consumed here as scorers.</p>
+<h2 id="golden-datasets">Golden datasets<a class="headerlink" href="#golden-datasets" title="Permanent link">#</a></h2>
+<p>A golden dataset is the contract between "what Oncora answered" and "what was true." For each of the three flagship workflows we curate a separate golden set, because the unit of evaluation differs.</p>
+<h3 id="the-three-workflows-and-their-evaluation-unit">The three workflows and their evaluation unit<a class="headerlink" href="#the-three-workflows-and-their-evaluation-unit" title="Permanent link">#</a></h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Workflow</th>
+<th>Unit of a case</th>
+<th>Expert-labeled reference</th>
+<th>Primary baselines (comparison arms)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Target discovery</strong></td>
+<td>A <code>(target, disease)</code> druggability/association question</td>
+<td>Expert druggability/association call with rationale + cited evidence</td>
+<td>Gene–disease association scorers; pathway-enrichment ranking; retrieval-only RAG</td>
+</tr>
+<tr>
+<td><strong>Translational research</strong></td>
+<td>A <code>(variant, compound, context)</code> sensitivity/resistance or mechanism question</td>
+<td>Expert interpretation tied to guideline/curation tier</td>
+<td>Standard variant-annotation pipeline; knowledge-base lookup; retrieval-only RAG</td>
+</tr>
+<tr>
+<td><strong>Trial design / matching</strong></td>
+<td>A <code>(cohort or patient profile, trial)</code> eligibility/match question, or a design-soundness question</td>
+<td>Expert eligibility adjudication / design review</td>
+<td>Trial-matching heuristics; rule-based eligibility filters; retrieval-only RAG</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>I am hedging the <em>exact</em> baseline tools deliberately (see <a href="#baselines">Baselines</a>). The named families above are firm; the specific implementation behind each arm is pinned per benchmark run in the manifest, not in this prose.</p>
+</blockquote>
+<h3 id="how-golden-sets-are-built-and-curated">How golden sets are built and curated<a class="headerlink" href="#how-golden-sets-are-built-and-curated" title="Permanent link">#</a></h3>
+<ol>
+<li><strong>Source selection from pinned snapshots.</strong> Candidate cases are drawn only from content-addressed data snapshots (the same snapshot machinery described in <a href="04-knowledge-and-data.html">04-knowledge-and-data.md</a>). No golden case may reference live, drifting data — that would make the label irreproducible.</li>
+<li><strong>Expert labeling.</strong> Each case is independently labeled by ≥2 domain experts. The label is not just a verdict; it is <code>{decision, rationale, cited evidence, confidence}</code> so that we can score <em>both</em> the answer and whether Oncora cited the same evidence the expert relied on.</li>
+<li><strong>Adjudication.</strong> Disagreements go to a third senior expert. Inter-annotator agreement (Cohen's/Fleiss' κ) is recorded per set; cases below an agreement floor are flagged as <strong>ambiguous</strong> and either dropped or moved to a separate "hard/ambiguous" stratum where <em>abstention</em> is the expected behaviour.</li>
+<li><strong>Negative and abstention cases.</strong> Each set deliberately includes cases where the correct behaviour is to <strong>abstain</strong> (insufficient/contradictory evidence) and cases with a clear wrong-but-plausible distractor. Without these, abstention quality cannot be measured.</li>
+<li><strong>Versioning + content addressing.</strong> A finished golden set is serialized (<code>serde</code>), hashed with <strong>BLAKE3</strong>, and stored as a CAS artifact via <code>oncora-artifacts</code>. The set is referenced everywhere by its <code>SnapshotId</code>. Re-curation produces a new id; old ids remain replayable forever.</li>
+<li><strong>Held-out splits.</strong> Each set is partitioned into <code>dev</code> (visible during prompt/agent development), <code>test</code> (CI gate; visible to maintainers), and a <strong>sealed <code>holdout</code></strong> (released only for publication / external audit, never used for tuning). Split membership is stored <em>inside</em> the content-addressed snapshot so a split cannot be silently reshuffled.</li>
+</ol>
+<pre class="mermaid">flowchart TD
+  raw[&quot;Pinned data snapshots&quot;] --&gt; cand[&quot;Candidate case selection&quot;]
+  cand --&gt; lab[&quot;Independent expert labels - 2 plus&quot;]
+  lab --&gt; adj[&quot;Adjudication + kappa&quot;]
+  adj --&gt; strat[&quot;Stratify - normal / hard / abstain-expected&quot;]
+  strat --&gt; split[&quot;Split - dev / test / sealed holdout&quot;]
+  split --&gt; hash[&quot;BLAKE3 hash + serde manifest&quot;]
+  hash --&gt; cas[&quot;CAS golden set with SnapshotId&quot;]</pre>
+<h2 id="baselines">Baselines<a class="headerlink" href="#baselines" title="Permanent link">#</a></h2>
+<p>A benchmark is only credible if the comparison arms are strong and <strong>fair</strong>. Every task is scored against the human-expert reference <em>and</em> at least one computational baseline. Baselines run through the <strong>same harness, same snapshots, same scorer</strong> as the agent — identical inputs, identical metric code — so the only variable is the method under test.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Workflow</th>
+<th>Baseline family</th>
+<th>What it represents</th>
+<th>Fairness notes / hedges</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Target discovery</td>
+<td>Gene–disease association scorer</td>
+<td>Established statistical association ranking</td>
+<td>Exact scorer pinned per run; we report the version. Treat scores as a ranking arm, not ground truth</td>
+</tr>
+<tr>
+<td>Target discovery</td>
+<td>Retrieval-only RAG</td>
+<td>"What a generic RAG chatbot would do"</td>
+<td>Same retriever + corpus snapshot as Oncora, no agent loop / no verifier / no abstention</td>
+</tr>
+<tr>
+<td>Translational</td>
+<td>Standard variant-annotation pipeline</td>
+<td>Conventional annotation + tiering</td>
+<td>Specifics vary by deployment; pin the exact pipeline + reference build in the manifest</td>
+</tr>
+<tr>
+<td>Translational</td>
+<td>KB lookup</td>
+<td>Direct knowledge-base answer</td>
+<td>Exact-match lookup only; abstains when absent</td>
+</tr>
+<tr>
+<td>Trial design / matching</td>
+<td>Trial-matching heuristics</td>
+<td>Rule/criteria-based eligibility filtering</td>
+<td>Heuristic ruleset is itself versioned and hashed</td>
+</tr>
+<tr>
+<td>All</td>
+<td>Retrieval-only RAG</td>
+<td>Ablation of the agentic stack</td>
+<td>Isolates the <em>value of the agent loop</em> over plain retrieval</td>
+</tr>
+</tbody>
+</table></div>
+<p>Design rules for fair baselines:</p>
+<ul>
+<li><strong>Same inputs.</strong> A baseline never sees data the agent didn't, and vice versa.</li>
+<li><strong>Abstention parity.</strong> Baselines that can abstain are allowed to; baselines that cannot are scored at full coverage and that limitation is reported (it is the point).</li>
+<li><strong>No tuning on <code>test</code>/<code>holdout</code>.</strong> Baseline hyperparameters are frozen from <code>dev</code> only.</li>
+<li><strong>Pinned + cited.</strong> Every baseline arm records its implementation id/version into the <code>RunResult</code>, so a reviewer knows exactly what "the baseline" was.</li>
+</ul>
+<h2 id="metrics">Metrics<a class="headerlink" href="#metrics" title="Permanent link">#</a></h2>
+<p>Oncora reports a fixed metric panel per workflow. Calibration and abstention are <strong>first-class</strong>, not footnotes — that is the whole pillar.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>What it measures</th>
+<th>Target / gate</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Accuracy / F1 (task-specific)</td>
+<td>Correctness of accepted answers vs expert label</td>
+<td>Must not drop &gt; <strong>1.0 pp</strong> vs last green main; must beat strongest baseline</td>
+</tr>
+<tr>
+<td>Task-specific score</td>
+<td>E.g. ranking metric for discovery, eligibility F1 for matching</td>
+<td>Beat strongest baseline arm on <code>test</code></td>
+</tr>
+<tr>
+<td><strong>ECE</strong> (Expected Calibration Error)</td>
+<td>Gap between stated calibrated confidence and empirical accuracy</td>
+<td>ECE ≤ <strong>0.05</strong>; no regression &gt; <strong>0.01</strong> vs main. Reliability diagram attached</td>
+</tr>
+<tr>
+<td>Reliability diagram</td>
+<td>Per-bin confidence vs accuracy curve</td>
+<td>Visual artifact in every report; must be monotone-ish, no severe overconfidence band</td>
+</tr>
+<tr>
+<td><strong>Coverage vs risk</strong></td>
+<td>Risk (error rate) as a function of how much the system answers vs abstains</td>
+<td>Risk–coverage curve attached; risk at fixed coverage must not regress</td>
+</tr>
+<tr>
+<td><strong>Selective accuracy</strong></td>
+<td>Accuracy <em>on the answered subset</em> at a target coverage</td>
+<td>Selective accuracy at target coverage ≥ floor; must exceed full-coverage accuracy</td>
+</tr>
+<tr>
+<td><strong>AURC</strong></td>
+<td>Area under risk–coverage curve (lower is better)</td>
+<td>AURC must not regress &gt; <strong>0.01</strong> vs main</td>
+</tr>
+<tr>
+<td>Abstention precision/recall</td>
+<td>Did it abstain when it <em>should</em> (vs expert-abstain cases)</td>
+<td>Abstain-recall floor on the abstain-expected stratum</td>
+</tr>
+<tr>
+<td>Latency p50/p95</td>
+<td>Wall-clock per case, replayed</td>
+<td>p95 within budget; microbench gate via <code>criterion</code></td>
+</tr>
+<tr>
+<td>Cost — tokens</td>
+<td>Prompt+completion tokens per case</td>
+<td>Reported; budget alert, not a hard gate by default</td>
+</tr>
+<tr>
+<td>Cost — compute</td>
+<td>GPU/CPU seconds per case</td>
+<td>Reported; tracked for trend</td>
+</tr>
+</tbody>
+</table></div>
+<p>Notes:</p>
+<ul>
+<li><strong>Calibration is scored on calibrated confidence</strong>, the <code>Confidence(f64)</code> with its <code>CalibrationMethod</code> tag from <a href="03-uncertainty-reliability.html">03-uncertainty-reliability.md</a>. We never score raw model logits.</li>
+<li><strong>Abstention quality is a metric, not an escape hatch.</strong> Abstaining on everything trivially yields zero risk at zero coverage; the risk–coverage curve and selective accuracy expose that immediately.</li>
+<li><strong>Beating the expert</strong> is measured on accuracy, calibration <em>and</em> latency simultaneously — a faster, equally-accurate, better-calibrated system is the win condition.</li>
+</ul>
+<h2 id="evaluation-harness-oncora-eval">Evaluation harness — <code>oncora-eval</code><a class="headerlink" href="#evaluation-harness-oncora-eval" title="Permanent link">#</a></h2>
+<p><code>oncora-eval</code> is the canonical benchmark crate. Per the workspace layout it depends on <code>oncora-core</code>, <code>oncora-agents</code>, and effectively everything beneath them (it must instantiate the full stack to replay a run). It depends <em>inward</em>; nothing depends on it except <code>oncora-cli</code>.</p>
+<p>Responsibilities:</p>
+<ul>
+<li><strong>Deterministic replay from manifests.</strong> A run is fully specified by a <code>RunManifest</code> (model pins, data snapshot ids, seeds, config hash). Given a manifest, the harness reconstructs the exact agent stack and re-executes — or replays from recorded fixtures — with no hidden state.</li>
+<li><strong>Pinned models + data snapshots.</strong> The harness refuses to run against an unpinned model endpoint or a non-content-addressed dataset. Pins are the <code>ModelPin</code> and <code>SnapshotId</code> from the canonical <code>Provenance</code> type.</li>
+<li><strong>Records every run to CAS.</strong> Inputs, raw model I/O fixtures, per-case <code>RunResult</code>s, computed <code>Score</code>s, and the final report are all content-addressed via <code>oncora-artifacts</code> (BLAKE3) and indexed in the Postgres provenance ledger. Every reported number is therefore traceable to the artifact that produced it.</li>
+<li><strong>Experiment tracking.</strong> Each benchmark execution gets a stable <code>ExperimentId</code>; runs are queryable by <code>(workflow, split, model_pin, snapshot, git_commit)</code>. <code>tracing</code> spans (per the telemetry stack) correlate harness execution end-to-end.</li>
+<li><strong>Three-way comparison.</strong> For every case it produces aligned results for <strong>agent</strong>, <strong>human-expert reference</strong>, and each <strong>baseline</strong> arm, scored by identical metric code.</li>
+</ul>
+<pre class="mermaid">flowchart TD
+  gd[&quot;Golden dataset - CAS + SnapshotId&quot;] --&gt; agent[&quot;Run agent - pinned model + snapshot&quot;]
+  gd --&gt; base[&quot;Run baselines - pinned arms&quot;]
+  gd --&gt; human[&quot;Human-expert labels&quot;]
+
+  agent --&gt; scorer[&quot;Scorer&quot;]
+  base --&gt; scorer
+  human --&gt; scorer
+
+  scorer --&gt; metrics[&quot;Metrics - accuracy / ECE / AURC / latency / cost&quot;]
+  metrics --&gt; report[&quot;Report + reliability + risk-coverage figures&quot;]
+  report --&gt; gate[&quot;CI regression gate&quot;]
+
+  agent --&gt; cas[&quot;Record fixtures + results to CAS&quot;]
+  base --&gt; cas
+  scorer --&gt; cas</pre>
+<h2 id="ci-regression-gating">CI regression gating<a class="headerlink" href="#ci-regression-gating" title="Permanent link">#</a></h2>
+<p>Benchmarks run in CI on the <code>test</code> split on every PR that touches agent, retrieval, memory, uncertainty, or prompt code. A merge is <strong>blocked</strong> if any gate trips.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Gate</th>
+<th>Condition to block merge</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Accuracy floor</td>
+<td>Task accuracy/F1 drops &gt; 1.0 pp vs last green main</td>
+</tr>
+<tr>
+<td>Calibration floor</td>
+<td>ECE rises &gt; 0.01 vs main, or exceeds absolute ceiling 0.05</td>
+</tr>
+<tr>
+<td>Abstention floor</td>
+<td>AURC regresses &gt; 0.01, or abstain-recall on abstain-expected stratum drops below floor</td>
+</tr>
+<tr>
+<td>Baseline dominance</td>
+<td>Agent fails to beat the strongest baseline arm on the primary task metric</td>
+</tr>
+<tr>
+<td>Latency</td>
+<td><code>criterion</code> microbench shows a statistically significant p95 regression beyond the tolerance band</td>
+</tr>
+<tr>
+<td>Reproducibility</td>
+<td>A recorded-fixture replay does not reproduce the prior <code>Score</code> within tolerance</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="handling-llm-nondeterminism">Handling LLM nondeterminism<a class="headerlink" href="#handling-llm-nondeterminism" title="Permanent link">#</a></h3>
+<p>LLM sampling makes naive accuracy gates flaky. Oncora pins down nondeterminism on multiple fronts so the gate is trustworthy:</p>
+<ul>
+<li><strong>Seeds everywhere.</strong> Sampling seed, self-consistency sample seeds, and any shuffling seed are fields in the <code>RunManifest</code> and recorded in <code>RunResult</code>.</li>
+<li><strong>Recorded fixtures (default in CI).</strong> CI replays from <strong>cached, content-addressed model I/O fixtures</strong> captured on a prior full run, so the gate is deterministic and does not hit a GPU. Live-model runs happen on a schedule / nightly, not on every PR.</li>
+<li><strong>Caching.</strong> Identical <code>(model_pin, prompt_hash, params, seed)</code> resolves to a cached completion in CAS — same input, same output, by construction.</li>
+<li><strong>Tolerance bands.</strong> Where live stochasticity is unavoidable (nightly full runs), metrics are reported as mean ± CI over N replays and gated against a <strong>tolerance band</strong>, not a point value. A regression must exceed the band to block.</li>
+<li><strong>Snapshot tests (<code>insta</code>).</strong> Prompts, assembled contexts, and manifests are locked with <code>insta</code> so an <em>unintended</em> prompt change is caught as a diff, separately from metric drift.</li>
+<li><strong><code>criterion</code> microbenchmarks</strong> guard latency-sensitive hot paths (retrieval fusion, scorer, manifest hashing) against regressions independently of the end-to-end LLM latency.</li>
+</ul>
+<h2 id="publish-grade-reproducibility">Publish-grade reproducibility<a class="headerlink" href="#publish-grade-reproducibility" title="Permanent link">#</a></h2>
+<p>The bar: a reviewer who has the repo at a commit and access to the pinned snapshots can reproduce any figure with <strong>one command</strong>, and can trace any number in the paper to its source artifact.</p>
+<h3 id="manifest-contents">Manifest contents<a class="headerlink" href="#manifest-contents" title="Permanent link">#</a></h3>
+<p>A <code>RunManifest</code> is the complete, content-addressed description of a benchmark run:</p>
+<ul>
+<li><strong>Model pins</strong> — <code>ModelPin</code> per role (planner, specialists, verifier, calibrator), including weights digest, serving backend, and decode params.</li>
+<li><strong>Data snapshot ids</strong> — <code>SnapshotId</code> for the golden set and for every underlying corpus/KG/omics snapshot used.</li>
+<li><strong>Seeds</strong> — sampling, self-consistency, shuffling.</li>
+<li><strong>Config hash</strong> — BLAKE3 of the fully-resolved (<code>figment</code>-merged) configuration.</li>
+<li><strong>Code provenance</strong> — git commit + workspace lockfile digest.</li>
+<li><strong>Baseline arm pins</strong> — version/id of each baseline implementation.</li>
+<li><strong>Manifest digest</strong> — the BLAKE3 of all the above; <em>this id names the run</em>.</li>
+</ul>
+<h3 id="one-command-replay">One-command replay<a class="headerlink" href="#one-command-replay" title="Permanent link">#</a></h3>
+<pre class="highlight"><code>oncora-cli eval replay --manifest &lt;manifest-blake3&gt;</code></pre>
+<p>This resolves the manifest from CAS, reconstructs the pinned stack, replays from fixtures (or live with <code>--live</code>), recomputes metrics, regenerates figures, and asserts the recomputed <code>Score</code> matches the recorded one within tolerance. Reproducing a specific figure is <code>oncora-cli eval figure --report &lt;report-blake3&gt; --id fig-3</code>.</p>
+<h3 id="provenance-of-every-reported-number">Provenance of every reported number<a class="headerlink" href="#provenance-of-every-reported-number" title="Permanent link">#</a></h3>
+<p>Each number in a report carries a back-pointer: <code>report → ExperimentId → RunManifest digest → per-case RunResult digests → recorded model-I/O fixtures</code>. The chain lives in CAS + the provenance ledger, so "where did 0.91 F1 come from" resolves to exact inputs, outputs, and config. This is the same <code>Provenance</code> contract used everywhere else in Oncora — benchmarks get no special exemption.</p>
+<h2 id="rust-sketch-eval-types">Rust sketch — eval types<a class="headerlink" href="#rust-sketch-eval-types" title="Permanent link">#</a></h2>
+<p>Illustrative, consistent with the canonical <code>oncora-core</code> types (<code>Confidence</code>, <code>Provenance</code>, <code>Verdict</code>, <code>ModelPin</code>, <code>SnapshotId</code>).</p>
+<pre class="highlight"><code class="language-rust">use oncora_core::{Confidence, ModelPin, Provenance, SnapshotId, Verdict};
+
+/// A single scored unit of a golden set.
+pub struct BenchmarkCase {
+    pub id: CaseId,
+    pub workflow: Workflow,           // TargetDiscovery | Translational | TrialDesign
+    pub split: Split,                 // Dev | Test | Holdout
+    pub stratum: Stratum,             // Normal | Hard | AbstainExpected
+    pub input: serde_json::Value,     // task input, drawn from a pinned snapshot
+    pub expert: ExpertLabel,          // reference decision + rationale + cited evidence
+    pub snapshot: SnapshotId,         // the golden set this case belongs to
+}
+
+pub struct ExpertLabel {
+    pub decision: Decision,
+    pub rationale: String,
+    pub cited_evidence: Vec&lt;SourceRef&gt;,
+    pub annotator_agreement: f64,     // kappa for the case's set
+}
+
+/// One arm's output for one case: agent, a baseline, or replayed.
+pub struct RunResult {
+    pub case: CaseId,
+    pub arm: Arm,                     // Agent | Baseline(name) | Expert
+    pub verdict: Verdict,             // Accept | Abstain | Escalate
+    pub answer: Option&lt;Decision&gt;,     // None when Abstain/Escalate
+    pub confidence: Confidence,       // calibrated, with CalibrationMethod tag
+    pub provenance: Provenance,       // sources, tool_calls, model, snapshot
+    pub latency_ms: u64,
+    pub cost: Cost,                   // tokens + compute seconds
+    pub fixtures: Vec&lt;ArtifactId&gt;,    // recorded model I/O in CAS
+}
+
+/// Computed metrics for an arm over a split.
+pub struct Score {
+    pub arm: Arm,
+    pub split: Split,
+    pub accuracy: f64,
+    pub task_metric: f64,
+    pub ece: f64,
+    pub aurc: f64,
+    pub selective_accuracy_at: Vec&lt;(f64, f64)&gt;, // (coverage, accuracy)
+    pub abstain_recall: f64,
+    pub latency_p50_ms: u64,
+    pub latency_p95_ms: u64,
+    pub cost: Cost,
+}
+
+/// CI gate definition; evaluated against the last green main.
+pub struct GatePolicy {
+    pub max_accuracy_drop_pp: f64,    // e.g. 1.0
+    pub max_ece_regression: f64,      // e.g. 0.01
+    pub ece_ceiling: f64,             // e.g. 0.05
+    pub max_aurc_regression: f64,     // e.g. 0.01
+    pub min_abstain_recall: f64,      // floor on abstain-expected stratum
+    pub must_beat_baseline: bool,     // strongest baseline arm
+    pub latency_tolerance: ToleranceBand,
+}
+
+impl GatePolicy {
+    /// Block the merge if any gate trips.
+    pub fn evaluate(&amp;self, current: &amp;Score, baseline: &amp;Score, main: &amp;Score) -&gt; GateOutcome {
+        // compare current vs main (regression) and current vs strongest baseline (dominance)
+        todo!()
+    }
+}
+
+pub enum GateOutcome {
+    Pass,
+    Block { reasons: Vec&lt;String&gt; },
+}</code></pre>
+<h2 id="risks">Risks<a class="headerlink" href="#risks" title="Permanent link">#</a></h2>
+<ul>
+<li><strong>Label quality.</strong> Expert labels are themselves noisy; low inter-annotator agreement caps achievable accuracy. Mitigation: ≥2 annotators + adjudication, recorded κ, ambiguous cases routed to an abstain-expected stratum rather than forced into a binary truth.</li>
+<li><strong>Baseline fairness.</strong> A weak or mis-tuned baseline produces a flattering but meaningless win. Mitigation: same harness/inputs/scorer, frozen-from-<code>dev</code> tuning, pinned + version-reported baseline arms, retrieval-only RAG ablation always present.</li>
+<li><strong>Overfitting to the golden set.</strong> Tuning prompts/agents against visible splits inflates <code>test</code> numbers. Mitigation: sealed <code>holdout</code> never used for tuning, split membership baked into the content-addressed snapshot, periodic golden-set refresh with new <code>SnapshotId</code>s.</li>
+<li><strong>LLM nondeterminism.</strong> Sampling variance makes gates flaky and results non-reproducible. Mitigation: seeds in the manifest, recorded-fixture replay as the CI default, CAS caching keyed on <code>(model, prompt, params, seed)</code>, tolerance bands on nightly live runs, <code>insta</code> to catch unintended prompt drift.</li>
+<li><strong>Snapshot/golden drift.</strong> Re-curation can silently change what "the benchmark" means. Mitigation: content addressing — a changed set is a new id; old ids stay replayable; reports always cite the <code>SnapshotId</code> they ran on.</li>
+<li><strong>Cost/latency of full replay.</strong> Live re-runs are GPU-expensive. Mitigation: fixture replay for CI, scheduled live runs, <code>criterion</code> microbenchmarks for the deterministic hot paths.</li>
+</ul>
+<div class="pager">
+<a class="prev" href="05-tech-decisions.html"><span class="lbl">Previous</span><span class="ttl">Tech decisions</span></a>
+<a class="next" href="07-repo-layout.html"><span class="lbl">Next</span><span class="ttl">Repo layout</span></a>
+</div>
+</article>
+</main>
+</div>
+<script>
+function syncScrim(){document.querySelector('.scrim').classList.toggle('show',document.body.classList.contains('nav-open'));
+  document.getElementById('sidebar').classList.toggle('open',document.body.classList.contains('nav-open'));}
+new MutationObserver(syncScrim).observe(document.body,{attributes:true,attributeFilter:['class']});
+</script>
+<script src="assets/js/highlight.min.js"></script>
+<script src="assets/js/rust.min.js"></script>
+<script src="assets/js/mermaid.min.js"></script>
+<script>
+  document.querySelectorAll('pre code').forEach(function(el){ try{ hljs.highlightElement(el); }catch(e){} });
+  mermaid.initialize({
+    startOnLoad:true, securityLevel:'loose',
+    theme:'base',
+    themeVariables:{
+      darkMode:true, background:'#0c1726',
+      primaryColor:'#13233c', primaryTextColor:'#e6edf6', primaryBorderColor:'#2dd4bf',
+      lineColor:'#7dd3fc', secondaryColor:'#16243d', tertiaryColor:'#0e1b2e',
+      fontFamily:"'Segoe UI',system-ui,sans-serif", fontSize:'15px',
+      clusterBkg:'#0e1b2e', clusterBorder:'#2b405f',
+      actorBkg:'#13233c', actorBorder:'#2dd4bf', actorTextColor:'#e6edf6',
+      signalColor:'#9fb3c8', signalTextColor:'#cbd9ea', labelBoxBkgColor:'#13233c', labelBoxBorderColor:'#2b405f'
+    }
+  });
+</script>
+</body>
+</html>

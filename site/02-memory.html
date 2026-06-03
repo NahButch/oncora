@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Agent memory · Oncora</title>
+<meta name="description" content="Oncora — Agent memory"/>
+<link rel="icon" href="assets/svg/oncora-mark.svg"/>
+<link rel="stylesheet" href="assets/css/hljs-github-dark.css"/>
+<link rel="stylesheet" href="assets/css/style.css"/>
+</head>
+<body>
+<button class="menu-btn" aria-label="Menu" onclick="document.body.classList.toggle('nav-open')">☰</button>
+<div class="scrim" onclick="document.body.classList.remove('nav-open')"></div>
+<div class="layout">
+<aside class="sidebar" id="sidebar">
+  <a class="brand" href="index.html">
+    <img src="assets/svg/oncora-mark.svg" alt="Oncora"/>
+    <span>
+      <span class="name">Onc<span>ora</span></span>
+      <span class="sub">Oncology Reasoning Agents</span>
+    </span>
+  </a>
+  <nav class="nav">
+<div class="group">Start</div>
+<a class="nav-link" href="index.html"><span>Home</span></a>
+<a class="nav-link" href="00-overview.html"><span class="num">00</span><span>Overview</span></a>
+<div class="group">Architecture</div>
+<a class="nav-link" href="01-architecture.html"><span class="num">01</span><span>Architecture</span></a>
+<a class="nav-link active" href="02-memory.html"><span class="num">02</span><span>Agent memory</span></a>
+<a class="nav-link" href="03-uncertainty-reliability.html"><span class="num">03</span><span>Uncertainty</span></a>
+<a class="nav-link" href="04-knowledge-and-data.html"><span class="num">04</span><span>Knowledge & data</span></a>
+<div class="group">Engineering</div>
+<a class="nav-link" href="05-tech-decisions.html"><span class="num">05</span><span>Tech decisions</span></a>
+<a class="nav-link" href="06-eval-benchmarking.html"><span class="num">06</span><span>Eval & benchmarks</span></a>
+<a class="nav-link" href="07-repo-layout.html"><span class="num">07</span><span>Repo layout</span></a>
+<a class="nav-link" href="08-roadmap.html"><span class="num">08</span><span>Roadmap & ops</span></a>
+  </nav>
+  <div class="foot">
+    Rust-native · on-prem · MCP<br/>
+    <a href="https://github.com/NahButch/oncora">github.com/NahButch/oncora</a><br/>
+    <span style="color:#475569">Built 2026-06-03</span>
+  </div>
+</aside>
+<main class="main">
+<div class="page-banner"><img src="assets/svg/banner-memory.svg" alt="Agent memory illustration"/></div>
+<article class="content">
+<h1 id="02-agent-memory-architecture">02 — Agent Memory Architecture<a class="headerlink" href="#02-agent-memory-architecture" title="Permanent link">#</a></h1>
+<blockquote>
+<p>Pillar 2 of Oncora. Persistent retention + context-aware decisions across multi-session
+oncology discovery workflows. This document expands the <em>Agent memory architecture</em> section
+of the design canon into the authoritative deep dive for the <code>oncora-memory</code> crate.</p>
+<p>Cross-references: <a href="01-architecture.html">01-architecture.md</a> ·
+<a href="03-uncertainty-reliability.html">03-uncertainty-reliability.md</a> ·
+<a href="04-knowledge-and-data.html">04-knowledge-and-data.md</a> ·
+<a href="05-tech-decisions.html">05-tech-decisions.md</a> · <a href="07-repo-layout.html">07-repo-layout.md</a>.</p>
+</blockquote>
+<hr />
+<h2 id="1-motivation-why-memory-is-a-first-class-subsystem">1. Motivation — why memory is a first-class subsystem<a class="headerlink" href="#1-motivation-why-memory-is-a-first-class-subsystem" title="Permanent link">#</a></h2>
+<p>Oncology drug discovery is not a single chat turn. A scientist returns to the same target over
+weeks: pulling literature on a kinase, layering in variant-level resistance data, cross-checking
+against trial endpoints, abstaining where evidence is thin, and resuming later. The platform's
+value collapses if every session starts cold. Memory is therefore a <strong>named pillar</strong>, not a
+convenience cache.</p>
+<p>What we are explicitly <strong>not</strong> building:</p>
+<ul>
+<li><strong>Not chat history.</strong> Transcript replay is lossy and unstructured. It cannot answer "what do we
+  currently believe about EGFR T790M resistance, and on what evidence" — it can only show what was
+  said. Memory carries <em>typed claims with confidence and provenance</em>, not utterances.</li>
+<li><strong>Not a vanilla vector store.</strong> A single embedding index gives fuzzy text recall with no notion
+  of entity identity, contradiction, time-travel, or authority. It cannot say "this 2019 claim is
+  superseded by a 2024 trial readout" or "these two assertions contradict and both are retained as
+  competing evidence." It has no provenance ledger and no replay guarantee.</li>
+</ul>
+<p>The differentiators that make this a subsystem rather than a library call:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Property</th>
+<th>Chat history</th>
+<th>Vanilla vector store</th>
+<th>Oncora memory</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Typed, confidence-bearing claims</td>
+<td>no</td>
+<td>no</td>
+<td>yes — see <a href="03-uncertainty-reliability.html">03</a></td>
+</tr>
+<tr>
+<td>Entity identity / resolution</td>
+<td>no</td>
+<td>weak</td>
+<td>yes — KG-grounded</td>
+</tr>
+<tr>
+<td>Contradictions retained</td>
+<td>no</td>
+<td>no</td>
+<td>yes — competing evidence</td>
+</tr>
+<tr>
+<td>Point-in-time / time-travel</td>
+<td>no</td>
+<td>no</td>
+<td>yes — <code>cozo</code></td>
+</tr>
+<tr>
+<td>Provenance on every item</td>
+<td>no</td>
+<td>partial</td>
+<td>yes — Postgres ledger + CAS</td>
+</tr>
+<tr>
+<td>Deterministic replay</td>
+<td>no</td>
+<td>no</td>
+<td>yes — snapshot + model pin</td>
+</tr>
+<tr>
+<td>Cross-session keying</td>
+<td>per chat</td>
+<td>per collection</td>
+<td><code>(scientist, project, workflow)</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>Memory is keyed cross-session by <code>(scientist, project, workflow)</code> and every entry is versioned,
+attributed, and content-addressed so that a run is replayable. Those three guarantees are the
+spine of this document.</p>
+<hr />
+<h2 id="2-the-five-memory-types">2. The five memory types<a class="headerlink" href="#2-the-five-memory-types" title="Permanent link">#</a></h2>
+<p>Each type has a <strong>purpose</strong>, <strong>contents</strong>, <strong>lifetime</strong>, and <strong>storage engine mapping</strong> drawn
+verbatim from the canon's LOCKED technology decisions.</p>
+<h3 id="21-working-short-term">2.1 Working / short-term<a class="headerlink" href="#21-working-short-term" title="Permanent link">#</a></h3>
+<ul>
+<li><strong>Purpose</strong>: scratchpad for the current run — the agent loop's volatile state.</li>
+<li><strong>Contents</strong>: current plan state, intermediate tool results, partial chains of reasoning,
+  pending verification queue.</li>
+<li><strong>Lifetime</strong>: bounded by the run; discarded or selectively consolidated at run end.</li>
+<li><strong>Storage</strong>: in-memory structures with <code>redb</code> spill for large or crash-safe state.</li>
+</ul>
+<h3 id="22-episodic">2.2 Episodic<a class="headerlink" href="#22-episodic" title="Permanent link">#</a></h3>
+<ul>
+<li><strong>Purpose</strong>: the append-only flight recorder of what actually happened.</li>
+<li><strong>Contents</strong>: every step, MCP tool call, observation, decision, and <code>Verdict</code>
+  (Accept / Abstain / Escalate) in temporal order.</li>
+<li><strong>Lifetime</strong>: durable; effectively permanent (subject to retention policy), never mutated.</li>
+<li><strong>Storage</strong>: <code>redb</code> log for the ordered event stream + CAS for large payloads (tool outputs,
+  documents) referenced by BLAKE3 hash.</li>
+</ul>
+<h3 id="23-semantic">2.3 Semantic<a class="headerlink" href="#23-semantic" title="Permanent link">#</a></h3>
+<ul>
+<li><strong>Purpose</strong>: durable, curated facts and relationships — the platform's belief state.</li>
+<li><strong>Contents</strong>: canonical entities and edges per the KG schema in
+  <a href="04-knowledge-and-data.html">04-knowledge-and-data.md</a> — Target, Disease, Pathway, Compound,
+  Variant, Trial, plus Claim/Evidence assertions with per-edge confidence.</li>
+<li><strong>Lifetime</strong>: long-lived; updated via consolidation and conflict resolution, never silently
+  overwritten.</li>
+<li><strong>Storage</strong>: dual store — <code>oxigraph</code> (RDF/SPARQL) for ontology-grounded canonical entities
+  (URIs from GO/Reactome/ChEMBL/UMLS/MONDO/HGNC) + <code>cozo</code> (Datalog, time-travel) for the
+  evidence/assertion graph with per-edge confidence and provenance.</li>
+</ul>
+<h3 id="24-procedural">2.4 Procedural<a class="headerlink" href="#24-procedural" title="Permanent link">#</a></h3>
+<ul>
+<li><strong>Purpose</strong>: learned how-to knowledge — what worked.</li>
+<li><strong>Contents</strong>: successful plan templates, effective tool-use sequences, skill recipes, tuned
+  retrieval strategies per task class.</li>
+<li><strong>Lifetime</strong>: long-lived; reinforced by repeated success, decayed when superseded.</li>
+<li><strong>Storage</strong>: <code>cozo</code> (pattern graph + relational) + CAS manifests for the serialized plan/skill
+  bodies.</li>
+</ul>
+<h3 id="25-provenance-evidence">2.5 Provenance / evidence<a class="headerlink" href="#25-provenance-evidence" title="Permanent link">#</a></h3>
+<ul>
+<li><strong>Purpose</strong>: the audit and reproducibility backbone — links every memory item to its origins.</li>
+<li><strong>Contents</strong>: per the canonical <code>Provenance</code> type —
+  <code>sources</code>, <code>tool_calls</code>, <code>model</code> pin, <code>snapshot</code> id — plus the support/contradiction structure
+  of <code>Evidence</code>.</li>
+<li><strong>Lifetime</strong>: permanent and immutable. Decay and tombstones may hide a fact, but <strong>provenance is
+  never lost</strong>.</li>
+<li><strong>Storage</strong>: Postgres provenance ledger (<code>sqlx</code>, compile-checked SQL, multi-node) + CAS for the
+  content-addressed payloads.</li>
+</ul>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Purpose</th>
+<th>Lifetime</th>
+<th>Primary engine</th>
+<th>Secondary</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Working</td>
+<td>run scratchpad</td>
+<td>run-scoped</td>
+<td>in-mem</td>
+<td><code>redb</code> spill</td>
+</tr>
+<tr>
+<td>Episodic</td>
+<td>append-only history</td>
+<td>durable, immutable</td>
+<td><code>redb</code> log</td>
+<td>CAS payloads</td>
+</tr>
+<tr>
+<td>Semantic</td>
+<td>belief state / KG</td>
+<td>long-lived</td>
+<td><code>oxigraph</code> + <code>cozo</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td>Procedural</td>
+<td>learned patterns</td>
+<td>long-lived</td>
+<td><code>cozo</code></td>
+<td>CAS manifests</td>
+</tr>
+<tr>
+<td>Provenance</td>
+<td>audit + replay</td>
+<td>permanent, immutable</td>
+<td>Postgres ledger</td>
+<td>CAS</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="3-write-path-deep-dive">3. Write path deep dive<a class="headerlink" href="#3-write-path-deep-dive" title="Permanent link">#</a></h2>
+<p>The write path converts raw run activity into durable, deduplicated, conflict-resolved,
+provenance-bearing memory. It is a pipeline, owned by <code>oncora-memory</code>, invoked at the
+<em>consolidate</em> step of the agent loop (see <a href="01-architecture.html">01-architecture.md</a>).</p>
+<h3 id="31-candidate-extraction">3.1 Candidate extraction<a class="headerlink" href="#31-candidate-extraction" title="Permanent link">#</a></h3>
+<p>The verifier/uncertainty stages emit <code>Evidence</code> items. Extraction lifts candidate facts —
+<code>(claim, support, contradiction, confidence, provenance)</code> tuples — from working memory and the run
+transcript. Candidates are typed against the KG schema; free-text-only candidates that cannot be
+mapped to an entity type are held as episodic-only and not promoted to semantic.</p>
+<h3 id="32-dedup-embedding-kg-entity-resolution">3.2 Dedup — embedding + KG entity resolution<a class="headerlink" href="#32-dedup-embedding-kg-entity-resolution" title="Permanent link">#</a></h3>
+<p>Two-stage dedup:</p>
+<ol>
+<li><strong>Embedding near-duplicate detection.</strong> Candidate claim text is embedded (<code>fastembed</code>, ONNX via
+   <code>ort</code>) and checked against the vector index (<code>qdrant</code>; <code>lancedb</code> for multimodal). Above a
+   cosine threshold the candidate is a <em>merge candidate</em>.</li>
+<li><strong>KG entity resolution.</strong> Subjects/objects are resolved to canonical URIs in <code>oxigraph</code>
+   (HGNC/ChEMBL/MONDO etc.). Two claims about the <em>same resolved entities and predicate</em> are the
+   same assertion even if worded differently. Entity resolution is the authoritative tie-breaker;
+   embedding similarity only proposes.</li>
+</ol>
+<h3 id="33-conflict-resolution">3.3 Conflict resolution<a class="headerlink" href="#33-conflict-resolution" title="Permanent link">#</a></h3>
+<p>When a resolved assertion already exists with a differing value, we do <strong>not</strong> overwrite. Policy
+inputs: <strong>recency</strong>, <strong>source authority</strong>, and <strong>calibrated confidence</strong>. Contradictions are
+<strong>retained as competing evidence</strong> — both edges live in <code>cozo</code> with their own confidence and
+provenance, and the <em>current belief</em> is a computed view, not a destructive write. Full policy is
+in <a href="#7-conflict-resolution-policy">§7</a>.</p>
+<h3 id="34-consolidation-working-episodic-semantic">3.4 Consolidation — working → episodic → semantic<a class="headerlink" href="#34-consolidation-working-episodic-semantic" title="Permanent link">#</a></h3>
+<p>Promotion is staged, never skipped:</p>
+<ul>
+<li><strong>working → episodic</strong>: every accepted step is appended to the <code>redb</code> episodic log with CAS
+  payload refs. This is unconditional and immutable.</li>
+<li><strong>episodic → semantic</strong>: only candidates that (a) resolve to KG entities, (b) survive dedup, and
+  (c) clear the confidence/verdict bar are promoted into <code>oxigraph</code>/<code>cozo</code> as durable facts.</li>
+<li><strong>procedural promotion</strong>: plans/tool sequences whose runs ended in <code>Accept</code> with high confidence
+  are templatized into procedural memory.</li>
+</ul>
+<h3 id="35-decay-forgetting">3.5 Decay / forgetting<a class="headerlink" href="#35-decay-forgetting" title="Permanent link">#</a></h3>
+<p>Forgetting is <em>visibility management</em>, not deletion. Each semantic/procedural entry carries a
+<strong>decay score</strong> combining time-since-last-use and access frequency. Below a floor the entry is
+<strong>soft-deleted with a tombstone</strong> and excluded from default retrieval. It can be revived if
+re-observed. Episodic history and <strong>provenance are never decayed or deleted</strong> — they are the
+replay substrate. <code>cozo</code> time-travel lets us reconstruct the belief state at any past instant
+regardless of later decay.</p>
+<h3 id="36-versioning-attribution-content-addressing-per-write">3.6 Versioning, attribution, content-addressing (per write)<a class="headerlink" href="#36-versioning-attribution-content-addressing-per-write" title="Permanent link">#</a></h3>
+<p>Every write records: a <code>SnapshotId</code> (data snapshot pin), a <code>ModelPin</code> (model/version that produced
+it), and a BLAKE3 content hash of the payload stored in CAS. This is what makes a run replayable
+(see <a href="#6-versioning-attribution-reproducibility">§6</a>).</p>
+<h3 id="37-writeconsolidation-flowchart">3.7 Write/consolidation flowchart<a class="headerlink" href="#37-writeconsolidation-flowchart" title="Permanent link">#</a></h3>
+<pre class="mermaid">flowchart TD
+    A[&quot;Run activity&lt;br/&gt;working memory + verifier&quot;] --&gt; B[&quot;Candidate extraction&lt;br/&gt;typed Evidence tuples&quot;]
+    B --&gt; C[&quot;Embedding dedup&lt;br/&gt;fastembed + qdrant&quot;]
+    C --&gt; D[&quot;KG entity resolution&lt;br/&gt;oxigraph URIs&quot;]
+    D --&gt;|new assertion| E[&quot;Conflict check&quot;]
+    D --&gt;|duplicate| F[&quot;Merge into existing&lt;br/&gt;add provenance&quot;]
+    E --&gt;|no conflict| G[&quot;Accept candidate&quot;]
+    E --&gt;|conflict| H[&quot;Keep competing evidence&lt;br/&gt;both edges in cozo&quot;]
+    G --&gt; I[&quot;Consolidation&quot;]
+    F --&gt; I
+    H --&gt; I
+    I --&gt; J[&quot;working to episodic&lt;br/&gt;redb log + CAS&quot;]
+    I --&gt; K[&quot;episodic to semantic&lt;br/&gt;oxigraph + cozo&quot;]
+    I --&gt; L[&quot;procedural promotion&lt;br/&gt;cozo + CAS manifest&quot;]
+    J --&gt; M[&quot;Stamp version&lt;br/&gt;snapshot + model pin + blake3&quot;]
+    K --&gt; M
+    L --&gt; M
+    M --&gt; N[&quot;Provenance ledger&lt;br/&gt;Postgres + CAS&quot;]
+    N --&gt; O[&quot;Decay scoring&lt;br/&gt;tombstone if below floor&quot;]
+    O -. provenance never lost .-&gt; N</pre>
+<hr />
+<h2 id="4-read-path-deep-dive">4. Read path deep dive<a class="headerlink" href="#4-read-path-deep-dive" title="Permanent link">#</a></h2>
+<p>Retrieval is <strong>hybrid</strong>: no single index is authoritative. We fan out across vector, graph, and
+recency/usage signals, fuse scores, then assemble context under a token budget.</p>
+<h3 id="41-hybrid-retrieval-channels">4.1 Hybrid retrieval channels<a class="headerlink" href="#41-hybrid-retrieval-channels" title="Permanent link">#</a></h3>
+<ul>
+<li><strong>Vector</strong>: semantic similarity over claim/document embeddings — <code>qdrant</code> for text/RAG,
+  <code>lancedb</code> for multimodal/imaging embeddings.</li>
+<li><strong>Graph — SPARQL</strong>: <code>oxigraph</code> answers ontology-structured queries over canonical entities
+  ("targets involved in this pathway with a known resistance variant").</li>
+<li><strong>Graph — Datalog</strong>: <code>cozo</code> answers recursive/relational queries over the evidence graph and
+  supports <strong>point-in-time</strong> queries — "what did we believe at snapshot X."</li>
+<li><strong>Recency / usage</strong>: episodic <code>redb</code> and decay scores boost recently-used, frequently-confirmed
+  memory.</li>
+</ul>
+<h3 id="42-score-fusion">4.2 Score fusion<a class="headerlink" href="#42-score-fusion" title="Permanent link">#</a></h3>
+<p>Each channel returns scored candidates. Fusion produces a single relevance score combining
+similarity, graph-path relevance, recency, usage, and the entry's <strong>calibrated confidence</strong> (low
+confidence is down-weighted, not hidden). Fusion weights are configurable per task class and are
+themselves a candidate for procedural-memory tuning.</p>
+<h3 id="43-context-assembly-under-token-budget">4.3 Context assembly under token budget<a class="headerlink" href="#43-context-assembly-under-token-budget" title="Permanent link">#</a></h3>
+<p>Fused candidates are packed under the model's token budget: deduplicated, ordered by fused score,
+truncated/summarized to fit, and each carried with its provenance handle so downstream claims stay
+attributable. Competing evidence is surfaced <em>together</em> so the agent can reason about contradiction
+rather than seeing one side.</p>
+<h3 id="44-readretrieval-flowchart">4.4 Read/retrieval flowchart<a class="headerlink" href="#44-readretrieval-flowchart" title="Permanent link">#</a></h3>
+<pre class="mermaid">flowchart TD
+    Q[&quot;Query&lt;br/&gt;scientist + project + workflow&quot;] --&gt; R[&quot;Resolve memory key&quot;]
+    R --&gt; V[&quot;Vector channel&lt;br/&gt;qdrant + lancedb&quot;]
+    R --&gt; S[&quot;Graph SPARQL&lt;br/&gt;oxigraph&quot;]
+    R --&gt; D[&quot;Graph Datalog&lt;br/&gt;cozo time-travel&quot;]
+    R --&gt; U[&quot;Recency and usage&lt;br/&gt;redb + decay scores&quot;]
+    V --&gt; F[&quot;Score fusion&lt;br/&gt;weighted per task class&quot;]
+    S --&gt; F
+    D --&gt; F
+    U --&gt; F
+    F --&gt; W[&quot;Confidence weighting&lt;br/&gt;calibrated&quot;]
+    W --&gt; X[&quot;Filter tombstoned&lt;br/&gt;unless point-in-time&quot;]
+    X --&gt; Y[&quot;Context assembly&lt;br/&gt;token budget pack&quot;]
+    Y --&gt; Z[&quot;Assembled context&lt;br/&gt;with provenance handles&quot;]</pre>
+<hr />
+<h2 id="5-overall-memory-architecture">5. Overall memory architecture<a class="headerlink" href="#5-overall-memory-architecture" title="Permanent link">#</a></h2>
+<p>One picture: five memory types, write path, read path, storage-engine mapping.</p>
+<pre class="mermaid">flowchart TD
+    subgraph Agent[&quot;Agent loop&quot;]
+        AL[&quot;perceive plan act observe&lt;br/&gt;reflect verify score&quot;]
+    end
+
+    subgraph Types[&quot;Five memory types&quot;]
+        T1[&quot;Working&lt;br/&gt;short-term&quot;]
+        T2[&quot;Episodic&quot;]
+        T3[&quot;Semantic&quot;]
+        T4[&quot;Procedural&quot;]
+        T5[&quot;Provenance&lt;br/&gt;evidence&quot;]
+    end
+
+    subgraph Write[&quot;Write path&quot;]
+        WX[&quot;extract&quot;] --&gt; WD[&quot;dedup&quot;] --&gt; WC[&quot;conflict res&quot;] --&gt; WK[&quot;consolidate&quot;] --&gt; WF[&quot;decay&quot;]
+    end
+
+    subgraph Read[&quot;Read path&quot;]
+        RH[&quot;hybrid retrieve&quot;] --&gt; RF[&quot;fuse&quot;] --&gt; RA[&quot;assemble&quot;]
+    end
+
+    subgraph Stores[&quot;Storage engines&quot;]
+        E1[&quot;redb&lt;br/&gt;working + episodic log&quot;]
+        E2[&quot;CAS blake3&lt;br/&gt;payloads + manifests&quot;]
+        E3[&quot;oxigraph&lt;br/&gt;ontology RDF SPARQL&quot;]
+        E4[&quot;cozo&lt;br/&gt;evidence graph Datalog&quot;]
+        E5[&quot;qdrant + lancedb&lt;br/&gt;vectors&quot;]
+        E6[&quot;Postgres&lt;br/&gt;provenance ledger&quot;]
+    end
+
+    AL --&gt; WX
+    RA --&gt; AL
+    WF --&gt; Types
+    Types --&gt; RH
+
+    T1 --&gt; E1
+    T2 --&gt; E1
+    T2 --&gt; E2
+    T3 --&gt; E3
+    T3 --&gt; E4
+    T4 --&gt; E4
+    T4 --&gt; E2
+    T5 --&gt; E6
+    T5 --&gt; E2
+    RH --&gt; E5
+    RH --&gt; E3
+    RH --&gt; E4
+    RH --&gt; E1</pre>
+<hr />
+<h2 id="6-versioning-attribution-reproducibility">6. Versioning, attribution, reproducibility<a class="headerlink" href="#6-versioning-attribution-reproducibility" title="Permanent link">#</a></h2>
+<p>Reproducibility is a cross-cutting non-negotiable (canon §Cross-cutting). Memory enforces it at
+the entry level:</p>
+<ul>
+<li><strong>Snapshot id</strong> — every entry pins the data snapshot (<code>SnapshotId</code>) it was derived under. Replay
+  rebinds to that snapshot so retrieval returns the same corpus state.</li>
+<li><strong>Model pin</strong> — every entry records the <code>ModelPin</code> (model + version + decode config) that
+  produced it, so the generating model is reconstructable.</li>
+<li><strong>Content-addressed payload</strong> — the entry's payload is stored in CAS under its BLAKE3 hash; the
+  entry holds the hash, not a mutable copy. Identical payloads dedup naturally and tampering is
+  detectable.</li>
+</ul>
+<p>Together these make a run <strong>deterministically replayable</strong>: given <code>(snapshot, model pin, content
+hashes)</code>, the same inputs reproduce the same memory state and the same retrieval. <code>cozo</code>
+time-travel adds point-in-time reconstruction of the <em>belief</em> state.</p>
+<p><strong>Cross-session keying.</strong> Memory is partitioned by <code>(scientist, project, workflow)</code>. The same
+scientist resuming the same project's workflow sees their accumulated, decayed-and-consolidated
+memory; a different project is isolated. This key is the retrieval scope and the provenance
+attribution subject.</p>
+<hr />
+<h2 id="7-conflict-resolution-policy">7. Conflict-resolution policy<a class="headerlink" href="#7-conflict-resolution-policy" title="Permanent link">#</a></h2>
+<p>Decision table. Inputs are recency, source authority, and calibrated confidence. The governing
+principle: <strong>never silently overwrite; contradictions are kept as competing evidence.</strong></p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Situation</th>
+<th>Rule</th>
+<th>Rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>New claim, no existing assertion</td>
+<td>Insert as new semantic fact with provenance</td>
+<td>Nothing to reconcile</td>
+</tr>
+<tr>
+<td>New claim duplicates existing<br/>same entities + predicate + value</td>
+<td>Merge; append source + tool call to provenance; bump usage</td>
+<td>Reinforce, do not duplicate</td>
+</tr>
+<tr>
+<td>New claim agrees, higher authority source</td>
+<td>Keep both; mark higher-authority as current belief</td>
+<td>Authority informs belief without erasing history</td>
+</tr>
+<tr>
+<td>New claim contradicts, more recent + higher confidence</td>
+<td>Retain both edges; current-belief view favors new</td>
+<td>Recency + confidence drive the view, not deletion</td>
+</tr>
+<tr>
+<td>New claim contradicts, lower confidence or weaker source</td>
+<td>Retain both; current-belief view stays old; flag for review</td>
+<td>Weak evidence cannot silently flip a belief</td>
+</tr>
+<tr>
+<td>Contradiction with comparable authority + confidence</td>
+<td>Retain both as competing evidence; surface together; abstain if asked</td>
+<td>Honest uncertainty over false resolution — see <a href="03-uncertainty-reliability.html">03</a></td>
+</tr>
+<tr>
+<td>Existing fact superseded by trial readout</td>
+<td>Add new edge; time-stamp; old remains queryable via time-travel</td>
+<td>Reproducibility of past conclusions</td>
+</tr>
+<tr>
+<td>Entity resolution ambiguous</td>
+<td>Do not merge; keep separate; queue for resolution</td>
+<td>Avoid silent wrong merges</td>
+</tr>
+<tr>
+<td>Entry below decay floor</td>
+<td>Tombstone; exclude from default read; keep provenance</td>
+<td>Forgetting is visibility, not loss</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="8-key-rust-types-sketch">8. Key Rust types (sketch)<a class="headerlink" href="#8-key-rust-types-sketch" title="Permanent link">#</a></h2>
+<p>Consistent with <code>oncora-core</code> (canonical types) and the <code>oncora-memory</code> crate boundary. Provider
+swappability lives behind the <code>MemoryStore</code> trait per the canon's trait-boundary rule.</p>
+<pre class="highlight"><code class="language-rust">use oncora_core::{Confidence, Evidence, Provenance, SnapshotId, ModelPin};
+
+/// Content-addressed identity of a memory payload (BLAKE3).
+pub struct ContentHash(pub [u8; 32]);
+
+/// Cross-session scope key: (scientist, project, workflow).
+pub struct MemoryKey {
+    pub scientist: ScientistId,
+    pub project: ProjectId,
+    pub workflow: WorkflowId,
+}
+
+/// Which of the five memory types an entry belongs to.
+pub enum MemoryKind {
+    Working,
+    Episodic,
+    Semantic,
+    Procedural,
+    Provenance,
+}
+
+/// One versioned, attributed, content-addressed memory entry.
+pub struct MemoryEntry {
+    pub id: MemoryId,
+    pub key: MemoryKey,
+    pub kind: MemoryKind,
+    pub evidence: Evidence,            // claim + support/contradiction + confidence
+    pub provenance: Provenance,        // sources + tool_calls + model + snapshot
+    pub snapshot: SnapshotId,          // data snapshot pin (replay)
+    pub model: ModelPin,               // generating model pin (replay)
+    pub payload: ContentHash,          // CAS handle, BLAKE3
+    pub decay_score: f64,              // time + usage; below floor =&gt; tombstone
+    pub tombstoned: bool,
+}
+
+/// Retrieval request resolved under a memory key and token budget.
+pub struct ReadQuery {
+    pub key: MemoryKey,
+    pub text: Option&lt;String&gt;,
+    pub as_of: Option&lt;SnapshotId&gt;,     // point-in-time via cozo time-travel
+    pub token_budget: usize,
+}
+
+/// Provider-swappable store boundary (impls: redb/cozo/oxigraph/qdrant/Postgres).
+#[async_trait::async_trait]
+pub trait MemoryStore {
+    type Error;
+
+    /// Write path: extract -&gt; dedup -&gt; conflict res -&gt; consolidate -&gt; decay.
+    async fn write(&amp;self, entry: MemoryEntry) -&gt; Result&lt;MemoryId, Self::Error&gt;;
+
+    /// Read path: hybrid retrieve -&gt; fuse -&gt; assemble under budget.
+    async fn read(&amp;self, query: ReadQuery) -&gt; Result&lt;Vec&lt;MemoryEntry&gt;, Self::Error&gt;;
+
+    /// Soft-delete with tombstone; provenance is retained.
+    async fn forget(&amp;self, id: MemoryId) -&gt; Result&lt;(), Self::Error&gt;;
+}</code></pre>
+<hr />
+<h2 id="9-risks-open-questions">9. Risks &amp; open questions<a class="headerlink" href="#9-risks-open-questions" title="Permanent link">#</a></h2>
+<ul>
+<li><strong>Decay tuning.</strong> The time/usage decay function and floor are heuristics. Too aggressive and we
+  forget useful rare facts; too lax and growth is unbounded. Needs empirical calibration per task
+  class and likely procedural-memory feedback — open.</li>
+<li><strong>Entity-resolution errors.</strong> Wrong merges silently corrupt the semantic graph (false identity);
+  missed merges fragment belief. Mitigated by KG-authoritative resolution and an
+  ambiguous-resolution queue, but precision/recall trade-off is unresolved.</li>
+<li><strong>Unbounded growth.</strong> Episodic + provenance are immutable and never decayed by design. CAS dedup
+  helps, but long-lived projects will grow without bound; retention tiers / cold storage for old
+  episodic data are an open operational question (relates to <code>foundationdb</code> scale-out, canon).</li>
+<li><strong>Fusion weighting.</strong> Per-task-class fusion weights are configurable but currently hand-set;
+  learning them risks overfitting and feedback loops with procedural memory.</li>
+<li><strong>Confidence drift.</strong> Calibrated confidence (<a href="03-uncertainty-reliability.html">03</a>) is pinned at
+  write time; recalibration of the underlying model can make stored confidences stale. Whether to
+  re-score historical memory or version the calibrator is open.</li>
+<li><strong>Privacy at decay.</strong> Tombstoning hides but never deletes; provenance retention vs. PHI deletion
+  obligations may conflict and needs a policy decision within the trust boundary.</li>
+</ul>
+<div class="pager">
+<a class="prev" href="01-architecture.html"><span class="lbl">Previous</span><span class="ttl">Architecture</span></a>
+<a class="next" href="03-uncertainty-reliability.html"><span class="lbl">Next</span><span class="ttl">Uncertainty</span></a>
+</div>
+</article>
+</main>
+</div>
+<script>
+function syncScrim(){document.querySelector('.scrim').classList.toggle('show',document.body.classList.contains('nav-open'));
+  document.getElementById('sidebar').classList.toggle('open',document.body.classList.contains('nav-open'));}
+new MutationObserver(syncScrim).observe(document.body,{attributes:true,attributeFilter:['class']});
+</script>
+<script src="assets/js/highlight.min.js"></script>
+<script src="assets/js/rust.min.js"></script>
+<script src="assets/js/mermaid.min.js"></script>
+<script>
+  document.querySelectorAll('pre code').forEach(function(el){ try{ hljs.highlightElement(el); }catch(e){} });
+  mermaid.initialize({
+    startOnLoad:true, securityLevel:'loose',
+    theme:'base',
+    themeVariables:{
+      darkMode:true, background:'#0c1726',
+      primaryColor:'#13233c', primaryTextColor:'#e6edf6', primaryBorderColor:'#2dd4bf',
+      lineColor:'#7dd3fc', secondaryColor:'#16243d', tertiaryColor:'#0e1b2e',
+      fontFamily:"'Segoe UI',system-ui,sans-serif", fontSize:'15px',
+      clusterBkg:'#0e1b2e', clusterBorder:'#2b405f',
+      actorBkg:'#13233c', actorBorder:'#2dd4bf', actorTextColor:'#e6edf6',
+      signalColor:'#9fb3c8', signalTextColor:'#cbd9ea', labelBoxBkgColor:'#13233c', labelBoxBorderColor:'#2b405f'
+    }
+  });
+</script>
+</body>
+</html>

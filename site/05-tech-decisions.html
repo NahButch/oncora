@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Tech decisions · Oncora</title>
+<meta name="description" content="Oncora — Tech decisions"/>
+<link rel="icon" href="assets/svg/oncora-mark.svg"/>
+<link rel="stylesheet" href="assets/css/hljs-github-dark.css"/>
+<link rel="stylesheet" href="assets/css/style.css"/>
+</head>
+<body>
+<button class="menu-btn" aria-label="Menu" onclick="document.body.classList.toggle('nav-open')">☰</button>
+<div class="scrim" onclick="document.body.classList.remove('nav-open')"></div>
+<div class="layout">
+<aside class="sidebar" id="sidebar">
+  <a class="brand" href="index.html">
+    <img src="assets/svg/oncora-mark.svg" alt="Oncora"/>
+    <span>
+      <span class="name">Onc<span>ora</span></span>
+      <span class="sub">Oncology Reasoning Agents</span>
+    </span>
+  </a>
+  <nav class="nav">
+<div class="group">Start</div>
+<a class="nav-link" href="index.html"><span>Home</span></a>
+<a class="nav-link" href="00-overview.html"><span class="num">00</span><span>Overview</span></a>
+<div class="group">Architecture</div>
+<a class="nav-link" href="01-architecture.html"><span class="num">01</span><span>Architecture</span></a>
+<a class="nav-link" href="02-memory.html"><span class="num">02</span><span>Agent memory</span></a>
+<a class="nav-link" href="03-uncertainty-reliability.html"><span class="num">03</span><span>Uncertainty</span></a>
+<a class="nav-link" href="04-knowledge-and-data.html"><span class="num">04</span><span>Knowledge & data</span></a>
+<div class="group">Engineering</div>
+<a class="nav-link active" href="05-tech-decisions.html"><span class="num">05</span><span>Tech decisions</span></a>
+<a class="nav-link" href="06-eval-benchmarking.html"><span class="num">06</span><span>Eval & benchmarks</span></a>
+<a class="nav-link" href="07-repo-layout.html"><span class="num">07</span><span>Repo layout</span></a>
+<a class="nav-link" href="08-roadmap.html"><span class="num">08</span><span>Roadmap & ops</span></a>
+  </nav>
+  <div class="foot">
+    Rust-native · on-prem · MCP<br/>
+    <a href="https://github.com/NahButch/oncora">github.com/NahButch/oncora</a><br/>
+    <span style="color:#475569">Built 2026-06-03</span>
+  </div>
+</aside>
+<main class="main">
+<div class="page-banner"><img src="assets/svg/banner-tech.svg" alt="Tech decisions illustration"/></div>
+<article class="content">
+<h1 id="oncora-technology-decisions-justifications-and-risk-register">Oncora — Technology Decisions, Justifications, and Risk Register<a class="headerlink" href="#oncora-technology-decisions-justifications-and-risk-register" title="Permanent link">#</a></h1>
+<p>This document is the technology survey behind Oncora. It <strong>expands</strong> the LOCKED technology table in the internal design canon — it never contradicts it. Where the canon names a primary and a fallback, this document explains <em>why the primary won, why the alternatives lost,</em> and <em>what must be verified before we commit code to it.</em> Read it alongside <a href="01-architecture.html">01-architecture.md</a> for the runtime topology, <a href="02-memory.html">02-memory.md</a> for how the stores are used, <a href="04-knowledge-and-data.html">04-knowledge-and-data.md</a> for the KG and data layer, and <a href="07-repo-layout.html">07-repo-layout.md</a> for the crate boundaries that isolate every choice below.</p>
+<p>Two principles govern every row in every table:</p>
+<ol>
+<li><strong>Everything swappable sits behind a trait in <code>oncora-core</code>.</strong> <code>ModelProvider</code>, <code>EmbeddingProvider</code>, <code>VectorStore</code>, <code>GraphStore</code>, <code>MemoryStore</code>, <code>ToolHost</code>, <code>Calibrator</code>, <code>Verifier</code>, <code>ArtifactStore</code>. A crate is an implementation detail; the trait is the contract. This is what lets us pick a young, fast-moving crate as primary without betting the platform on it.</li>
+<li><strong>Rust-native end to end; non-Rust dependencies are isolated and justified.</strong> The only sanctioned non-Rust surfaces are (a) the model endpoint over HTTP, (b) <code>ort</code>/ONNX Runtime via C++ bindings, and (c) third-party ontology <em>data</em>. Each is named explicitly in the <a href="#non-rust-dependencies-and-how-they-are-isolated">Non-Rust dependencies</a> section.</li>
+</ol>
+<p>A verdict of <strong>Primary</strong> means "build on it now." <strong>Fallback</strong> means "we keep the trait impl warm, or it is the documented escape hatch." <strong>Rejected</strong> means "surveyed and consciously declined" — recorded so we do not relitigate it.</p>
+<blockquote>
+<p><strong>Maturity caveat up front.</strong> Large parts of the Rust AI/agent ecosystem are 0.x and moving weekly. Every capability claim below carries a <em>verify</em> note, and the <a href="#verify-before-committing-checklist">verify-before-committing checklist</a> collects them. Trust the trait boundary, not the crate version.</p>
+</blockquote>
+<hr />
+<h2 id="1-agent-llm-orchestration">1. Agent / LLM orchestration<a class="headerlink" href="#1-agent-llm-orchestration" title="Permanent link">#</a></h2>
+<p>Oncora's agent runtime (Planner → Domain Specialists → Verifier → Uncertainty Scorer → Responder, per the canon) needs provider-agnostic agent abstractions, tool-calling, and streaming. We want a Rust-native framework so the agent loop, memory hooks, and uncertainty gating stay in one language and one type system. But this is the <em>least mature</em> corner of the ecosystem, so the orchestration crate is wrapped behind our own <code>oncora-agents</code> traits and the <code>ToolHost</code>/<code>ModelProvider</code> boundaries — we can rip the framework out without touching specialist logic.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Verdict</th>
+<th>Why</th>
+<th>Risk / what to verify</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rig</code> (rig-core)</td>
+<td><strong>Primary</strong></td>
+<td>Rust-native, provider-agnostic agent + tool abstractions; clean <code>Agent</code>/<code>Tool</code>/<code>completion</code> model that maps onto our planner/specialist topology; active development</td>
+<td>Young and fast-moving. <strong>Verify</strong>: current tool-calling ergonomics (multi-tool, parallel calls), streaming-completion maturity, and whether its provider trait covers OpenAI-compatible on-prem endpoints with custom base URLs. Wrap behind our own <code>oncora-agents</code> traits so a breaking 0.x bump is contained.</td>
+</tr>
+<tr>
+<td><code>swiftide</code></td>
+<td><strong>Primary (adjacent)</strong></td>
+<td>Owns a <em>different</em> job: streaming ingestion/RAG indexing pipelines, not the agent loop. Rust-native, composable transform stages fit literature/omics/imaging/KG ingest</td>
+<td>Young. We own the pipeline <em>contract</em> (<code>oncora-ingest</code>) regardless, so swiftide is an implementation of stages, not the API. <strong>Verify</strong>: backpressure behavior and whether node transforms compose cleanly with our <code>EmbeddingProvider</code>/<code>VectorStore</code> traits.</td>
+</tr>
+<tr>
+<td><code>kalosm</code></td>
+<td>Rejected</td>
+<td>Capable local-first inference + agent toolkit, but opinionated toward its own model-loading/inference stack; overlaps and competes with our <code>candle</code>/<code>mistral.rs</code> + <code>ModelProvider</code> boundary rather than sitting cleanly above it</td>
+<td>Would blur the inference/orchestration split we deliberately keep separate. Re-survey if rig stalls.</td>
+</tr>
+<tr>
+<td><code>anchor-chain</code></td>
+<td>Rejected</td>
+<td>Statically-typed LLM workflow DAGs are conceptually attractive, but the project is small/early with a thin ecosystem and uncertain maintenance</td>
+<td>Maintenance and feature risk too high for the core orchestration layer.</td>
+</tr>
+<tr>
+<td><code>llm-chain</code></td>
+<td>Rejected</td>
+<td>Early "LangChain for Rust" framing; chain/prompt-template abstractions are lower-level than rig's agent model and the trajectory has been quiet</td>
+<td>Less momentum and a weaker agent/tool story than rig. Not worth the dependency.</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Decision.</strong> <code>rig</code> for the agent/tool layer, <code>swiftide</code> for ingestion — both Rust-native, both wrapped behind Oncora traits. The fallback is explicit and cheap: an in-house orchestrator driving the raw LLM clients of §2 directly through <code>ModelProvider</code>. We will only exercise it if rig's tool-calling or streaming proves insufficient under verification.</p>
+<hr />
+<h2 id="2-llm-clients">2. LLM clients<a class="headerlink" href="#2-llm-clients" title="Permanent link">#</a></h2>
+<p>The canon mandates on-prem-first, cloud opt-in only. Our default deployment talks to a GPU model server (vLLM or TGI) that exposes an <strong>OpenAI-compatible</strong> API inside the VPC. Every client is an implementation of the <code>ModelProvider</code> trait; the agent layer never imports a client crate directly.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Verdict</th>
+<th>Why</th>
+<th>Risk / what to verify</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>async-openai</code></td>
+<td><strong>Primary</strong></td>
+<td>OpenAI-compatible covers our on-prem vLLM/TGI endpoint via a custom base URL — no cloud dependency required; mature, well-used, supports chat, tools, and streaming</td>
+<td><strong>Verify</strong>: that setting a custom base URL + on-prem auth works against the exact vLLM/TGI build we deploy, and that tool-call and streaming response shapes from vLLM match what the crate deserializes (server-side compatibility drift is the real risk, not the crate).</td>
+</tr>
+<tr>
+<td><code>async-anthropic</code> / Anthropic SDK</td>
+<td><strong>Primary (cloud opt-in)</strong></td>
+<td>First-class Anthropic access for the <em>opt-in</em>, egress-proxied cloud path; behind <code>ModelProvider</code>, identical contract to the on-prem provider</td>
+<td>Cloud path is <strong>off by default</strong> and only reachable through the audited egress proxy (canon). <strong>Verify</strong>: SDK currency vs. the latest Messages API (tool use, streaming) and that PHI-redaction sits in front of it.</td>
+</tr>
+<tr>
+<td>direct <code>reqwest</code> client</td>
+<td><strong>Fallback</strong></td>
+<td>Zero-magic escape hatch: a hand-rolled <code>ModelProvider</code> over <code>reqwest</code> for any endpoint whose wire format neither client above handles cleanly</td>
+<td>More code we own and must test. Used only when a target endpoint deviates from OpenAI/Anthropic shapes. Low risk, high effort.</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Decision.</strong> <code>async-openai</code> is the default provider pointed at on-prem vLLM/TGI; <code>async-anthropic</code> is a registered-but-disabled provider for the cloud path; <code>reqwest</code> is the documented fallback. All three are concrete impls of <code>ModelProvider</code> in <code>oncora-agents</code>. See the trust-boundary note in <a href="01-architecture.html">01-architecture.md</a>.</p>
+<hr />
+<h2 id="3-local-edge-inference">3. Local / edge inference<a class="headerlink" href="#3-local-edge-inference" title="Permanent link">#</a></h2>
+<p>Used for the dev single-node profile (canon Deployment) and for small on-device models: embedders, calibrators, classifiers, and a local LLM when no GPU server is present. The hard constraint: keep pure-Rust tensor/LLM inference separate from the one C++ dependency we tolerate (<code>ort</code>).</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Verdict</th>
+<th>Why</th>
+<th>Risk / what to verify</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>candle</code></td>
+<td><strong>Primary (tensors + small models)</strong></td>
+<td>Pure-Rust tensor framework from HF; powers embedders, calibrators, and classifiers without leaving Rust; CPU + CUDA backends</td>
+<td>Mature-ish but APIs still evolve. <strong>Verify</strong>: kernel coverage for the specific model architectures we run, and CUDA build reproducibility on our target images.</td>
+</tr>
+<tr>
+<td><code>mistral.rs</code></td>
+<td><strong>Primary (local LLM)</strong></td>
+<td>Pure-Rust local LLM inference (quantized GGUF, common architectures) for the dev profile and air-gapped nodes; no GPU server needed</td>
+<td>Fast-moving. <strong>Verify</strong>: which model families/quantizations are currently supported, throughput on target hardware, and whether it exposes an OpenAI-compatible surface we can put behind <code>ModelProvider</code>.</td>
+</tr>
+<tr>
+<td><code>ort</code> (ONNX Runtime)</td>
+<td><strong>Primary (ONNX only), isolated</strong></td>
+<td>The mature path for prebuilt ONNX embedders/classifiers (and what <code>fastembed</code> uses underneath); broad operator coverage</td>
+<td><strong>C++ bindings</strong> — the one tolerated non-Rust runtime. Isolated behind <code>EmbeddingProvider</code>/<code>Calibrator</code>; ONNX model files are pinned and content-addressed. <strong>Verify</strong>: pinned ORT version, reproducible builds, and that no ONNX graph reaches into anything but the trait surface.</td>
+</tr>
+<tr>
+<td><code>burn</code></td>
+<td>Rejected</td>
+<td>Elegant pure-Rust deep-learning framework with multiple backends, but aimed at <em>training</em>/research; heavier and broader than our inference-only need; would duplicate candle's role</td>
+<td>Re-survey only if we ever train models in-house rather than fine-tune externally and import.</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Decision.</strong> <code>candle</code> for tensors and small models, <code>mistral.rs</code> for the local LLM, <code>ort</code> strictly for prebuilt ONNX behind a trait. <code>burn</code> is rejected for an inference-serving platform. The ONNX isolation is the load-bearing call here — see <a href="#non-rust-dependencies-and-how-they-are-isolated">Non-Rust dependencies</a>.</p>
+<hr />
+<h2 id="4-mcp-model-context-protocol">4. MCP — Model Context Protocol<a class="headerlink" href="#4-mcp-model-context-protocol" title="Permanent link">#</a></h2>
+<p>Per the canon, <strong>all</strong> domain tools are MCP tools and the MCP host routes deterministic, audited tool calls. Oncora is both an MCP <strong>host/client</strong> (the agent runtime calling tools) and an MCP <strong>server</strong> (the in-house VCF/<code>noodles</code>, DICOM/<code>dicom-rs</code>, and deterministic-calculator servers). One SDK should cover both roles.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Verdict</th>
+<th>Why</th>
+<th>Risk / what to verify</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rmcp</code> (official Rust MCP SDK)</td>
+<td><strong>Primary</strong></td>
+<td>The official Rust SDK; covers both serving tools and acting as client/host; tokio-native, fits <code>oncora-mcp-host</code> cleanly; canonical choice</td>
+<td>MCP and its SDKs are evolving quickly. <strong>Verify</strong>: current transport support (stdio + streamable HTTP/SSE) we actually deploy, client-side host capabilities (tool discovery, calling, cancellation) maturity, and protocol-version compatibility across our servers. Pin the protocol version and the crate.</td>
+</tr>
+<tr>
+<td>in-house MCP impl</td>
+<td>Fallback</td>
+<td>If <code>rmcp</code> lags on a transport or capability we need, we own the protocol surface in <code>oncora-mcp-host</code> behind the <code>ToolHost</code> trait and can fill gaps</td>
+<td>High effort; only for a specific missing capability. The <code>ToolHost</code> trait means specialists never see the difference.</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Decision.</strong> <code>rmcp</code> for both directions. The <code>ToolHost</code> trait in <code>oncora-core</code> abstracts it so audit, determinism, and timeout enforcement (via <code>tower</code>) live in <em>our</em> code, not the SDK's. Tool calls are recorded to episodic memory and the provenance ledger (<a href="02-memory.html">02-memory.md</a>).</p>
+<hr />
+<h2 id="5-vector-search-embeddings">5. Vector search &amp; embeddings<a class="headerlink" href="#5-vector-search-embeddings" title="Permanent link">#</a></h2>
+<p>Hybrid retrieval (canon Read path) fuses vector + graph + recency. The vector side has two distinct workloads — text/RAG, and multimodal/imaging — plus an embedded option for dev and tests. Embeddings are produced on-prem.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Verdict</th>
+<th>Why</th>
+<th>Risk / what to verify</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>qdrant</code> (server + Rust client)</td>
+<td><strong>Primary (text/RAG)</strong></td>
+<td>Rust-native server, rich payload filtering, HNSW, scalar/product quantization, named vectors; runs on-prem and clusters for the scaled profile</td>
+<td>Mature; operational footprint of running the server. <strong>Verify</strong>: Rust client version tracks the server we deploy; filtering + hybrid-search features match what <code>oncora-retrieval</code> needs.</td>
+</tr>
+<tr>
+<td><code>lancedb</code></td>
+<td><strong>Primary (multimodal / imaging)</strong></td>
+<td>Rust-native columnar store; the Lance format is built for multimodal embeddings + metadata with versioning — ideal for imaging embeddings alongside DICOM-derived features</td>
+<td>Younger than qdrant, but the format is solid. <strong>Verify</strong>: ANN index types/recall at our scale, and versioning semantics we rely on for reproducibility.</td>
+</tr>
+<tr>
+<td><code>hnsw_rs</code> / <code>instant-distance</code></td>
+<td><strong>Fallback (embedded / dev)</strong></td>
+<td>Pure-Rust in-process ANN for the single-node dev profile and unit tests — no server to stand up</td>
+<td>Library-level, no persistence/filtering story to speak of. Dev and CI only; never the production text path.</td>
+</tr>
+<tr>
+<td><code>fastembed</code></td>
+<td><strong>Primary (embeddings)</strong></td>
+<td>Fast batched text embeddings on-prem; runs ONNX models via <code>ort</code>; turnkey for the common embedder families</td>
+<td>Pulls ONNX model files — <strong>pin them</strong> and content-address them. Inherits the <code>ort</code> C++ surface (isolated behind <code>EmbeddingProvider</code>).</td>
+</tr>
+<tr>
+<td><code>candle</code>-hosted embedding models</td>
+<td><strong>Fallback (embeddings)</strong></td>
+<td>Pure-Rust embedding path when we want to avoid the ONNX surface entirely or run an architecture <code>fastembed</code> does not package</td>
+<td>Slower to set up per-model; <strong>verify</strong> the specific model is implemented in candle.</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Decision.</strong> <code>qdrant</code> for text/RAG, <code>lancedb</code> for multimodal/imaging, embedded <code>hnsw_rs</code>/<code>instant-distance</code> for dev only. Embeddings via <code>fastembed</code> (primary) or <code>candle</code> (fallback) — both behind <code>EmbeddingProvider</code>. All vector stores implement the <code>VectorStore</code> trait so the fusion layer in <code>oncora-retrieval</code> is store-agnostic.</p>
+<hr />
+<h2 id="6-biomolecular-knowledge-graph-the-dual-store-decision">6. Biomolecular knowledge graph — the dual-store decision<a class="headerlink" href="#6-biomolecular-knowledge-graph-the-dual-store-decision" title="Permanent link">#</a></h2>
+<p>This is the most deliberate architectural call in the data layer, so it gets the most justification. The canon mandates <strong>two</strong> graph stores, not one. Here is why that is correct and not over-engineering.</p>
+<p>The KG has two fundamentally different jobs:</p>
+<ul>
+<li><strong>Ontology layer</strong> — canonical, standards-grounded entities and relations imported from GO, Reactome, ChEMBL, UMLS, MONDO, HGNC. These arrive as RDF, are addressed by stable URIs, and are queried with the relationship-traversal idioms the bio world already standardizes on: <strong>SPARQL</strong>. This data is reference material: largely read-only, versioned at snapshot granularity.</li>
+<li><strong>Evidence / assertion graph</strong> — Oncora's <em>own</em> output: claims, evidence, support/contradiction edges, per-edge confidence, and provenance, accumulated across runs and sessions. This needs <strong>time-travel</strong> (point-in-time queries: "what did we believe at snapshot X"), per-edge confidence, recursive <strong>Datalog</strong> reasoning, and ideally co-located vector search for semantic memory.</li>
+</ul>
+<p>No single store does both jobs well. A SPARQL triplestore models the ontology natively but is awkward for versioned, confidence-weighted, time-travelled assertions. A hybrid graph/vector/Datalog store models the evidence graph beautifully but is not the natural home for standards-based RDF/SPARQL ontology import. Forcing one tool to do both would mean re-encoding ontologies into a foreign model (losing URI semantics and SPARQL) or bolting versioning onto a triplestore by hand. The dual store is the <em>simpler</em> design once you accept the two jobs are genuinely different. Both sit behind the single <code>GraphStore</code> trait, so <code>oncora-kg</code> exposes one query surface and routes to the right backend.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Verdict</th>
+<th>Why</th>
+<th>Risk / what to verify</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>oxigraph</code></td>
+<td><strong>Primary (ontology layer)</strong></td>
+<td>Mature pure-Rust RDF triplestore with SPARQL; the natural fit for URI-addressed GO/Reactome/ChEMBL/UMLS/MONDO/HGNC import and standards-based traversal; ships as a library, no JVM</td>
+<td><strong>Verify</strong>: bulk-load performance for full ontology snapshots and SPARQL feature coverage (property paths, aggregates) we actually use.</td>
+</tr>
+<tr>
+<td><code>cozo</code> (CozoDB)</td>
+<td><strong>Primary (evidence / assertion graph)</strong></td>
+<td>Hybrid graph + relational + vector with <strong>Datalog</strong> and <strong>time-travel</strong> — uniquely matches versioned evidence + per-edge confidence + semantic memory; the time-travel is the differentiator nothing else offers cleanly</td>
+<td>Young but distinctive. <strong>Verify</strong>: time-travel query semantics at our data volumes, Datalog performance on recursive evidence queries, and embedded-vector recall. This is the highest-novelty store; keep the <code>GraphStore</code> trait strict so we can fall back.</td>
+</tr>
+<tr>
+<td><code>indradb</code></td>
+<td><strong>Fallback (evidence graph)</strong></td>
+<td>Pure-Rust property graph with pluggable storage; the escape hatch if cozo's young feature set bites</td>
+<td>No native time-travel or Datalog — we would lose the differentiator and re-implement versioning ourselves. Fallback only.</td>
+</tr>
+<tr>
+<td>Apache Jena</td>
+<td>Rejected</td>
+<td>Mature, standards-complete triplestore — but <strong>JVM</strong>, violating Rust-native + clean-isolation; oxigraph gives us SPARQL without the polyglot footprint</td>
+<td>Rejected on the Rust-native non-negotiable, not on capability.</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Decision.</strong> Dual store: <code>oxigraph</code> for the ontology layer (SPARQL over imported RDF), <code>cozo</code> for the evidence/assertion graph (Datalog + time-travel + per-edge confidence + vector), <code>indradb</code> as the evidence-graph fallback, Jena rejected for the JVM. Both stores are concrete <code>GraphStore</code> impls. Full schema and entity/edge model in <a href="04-knowledge-and-data.html">04-knowledge-and-data.md</a>.</p>
+<hr />
+<h2 id="7-omics-tabular-analytics">7. Omics &amp; tabular analytics<a class="headerlink" href="#7-omics-tabular-analytics" title="Permanent link">#</a></h2>
+<p>Multi-omics arrives as large tabular and genomics-format data, read from pinned Parquet snapshots and genomics files, never written back to source. The genomics-IO choice is also a Rust-native-vs-C-bindings decision.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Verdict</th>
+<th>Why</th>
+<th>Risk / what to verify</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>polars</code></td>
+<td><strong>Primary (in-process dataframes)</strong></td>
+<td>Fast, Arrow-backed, lazy/eager dataframe engine for in-proc omics transforms; pure Rust, excellent ergonomics</td>
+<td>Mature; API still moves between minor versions. <strong>Verify</strong>: memory behavior on the largest omics matrices we load.</td>
+</tr>
+<tr>
+<td><code>duckdb</code></td>
+<td><strong>Primary (SQL over Parquet)</strong></td>
+<td>Embedded analytical SQL directly over Parquet snapshots — the right tool for ad-hoc analytical queries the agents issue against omics</td>
+<td>Embedded C++ engine via Rust bindings, but a self-contained, well-isolated dependency behind our query interface. <strong>Verify</strong>: binding version vs. engine, and reproducibility of the bundled build.</td>
+</tr>
+<tr>
+<td><code>arrow</code></td>
+<td><strong>Primary (interchange)</strong></td>
+<td>The zero-copy columnar lingua franca tying polars ↔ duckdb ↔ Parquet ↔ CAS together without serialization round-trips</td>
+<td>Mature. Keep <code>arrow</code>/<code>polars</code>/<code>duckdb</code> Arrow versions aligned — <strong>verify</strong> at the workspace level.</td>
+</tr>
+<tr>
+<td><code>noodles</code></td>
+<td><strong>Primary (genomics IO)</strong></td>
+<td>Pure-Rust VCF/BCF/BAM/CRAM/FASTA/GFF/tabix; the in-house VCF MCP server is built on it; no C dependency</td>
+<td><strong>Verify</strong>: format/version coverage for the exact files our cohorts use; performance on large BAM/CRAM. Pure-Rust is the whole point.</td>
+</tr>
+<tr>
+<td><code>rust-htslib</code></td>
+<td>Rejected</td>
+<td>The htslib bindings are the established genomics-IO path everywhere else — but they are <strong>C bindings</strong>, and <code>noodles</code> covers our formats in pure Rust</td>
+<td>Rejected on the Rust-native/clean-isolation non-negotiable. Reconsider only for a niche format <code>noodles</code> genuinely lacks, and then only behind a tool boundary.</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Decision.</strong> <code>polars</code> + <code>duckdb</code> + <code>arrow</code> over Parquet for tabular omics; <code>noodles</code> for genomics IO (pure Rust); <code>rust-htslib</code> rejected to avoid the C-bindings surface. Genomics IO lives behind the VCF MCP server, so even noodles is reached through the <code>ToolHost</code> boundary.</p>
+<hr />
+<h2 id="8-imaging">8. Imaging<a class="headerlink" href="#8-imaging" title="Permanent link">#</a></h2>
+<p>DICOM parsing and IO for the imaging specialist, exposed through the imaging MCP server. Imaging-derived embeddings land in <code>lancedb</code> (§5).</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Verdict</th>
+<th>Why</th>
+<th>Risk / what to verify</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dicom-rs</code></td>
+<td><strong>Primary</strong></td>
+<td>The pure-Rust DICOM toolkit — parse/encode/IO without a C dependency; sits behind the imaging MCP server</td>
+<td>Mature enough for our parse/IO needs and behind the MCP boundary, so blast radius is contained. <strong>Verify</strong>: transfer-syntax/codec coverage for the modalities in our imaging corpus (e.g., compressed pixel data), and that pixel decoding we need is supported or pluggable.</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Decision.</strong> <code>dicom-rs</code> behind the imaging MCP server. No fallback named because there is no comparable pure-Rust alternative; if a codec is missing, we add it behind the same MCP tool boundary rather than reaching for a C library in the core.</p>
+<hr />
+<h2 id="9-agent-state-memory-store">9. Agent state / memory store<a class="headerlink" href="#9-agent-state-memory-store" title="Permanent link">#</a></h2>
+<p>Backs the working and episodic memory types (canon Memory architecture): a run scratchpad and an append-only run/decision/verdict log. Pure-Rust embedded ACID KV is the requirement; the relational ledger and optional scale-out are separate rows.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Verdict</th>
+<th>Why</th>
+<th>Risk / what to verify</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>redb</code></td>
+<td><strong>Primary (embedded KV/log)</strong></td>
+<td>Pure-Rust, embedded, ACID KV; stable 2.x; ideal for run logs and working-memory spill with no external service</td>
+<td>Mature for our use. <strong>Verify</strong>: write throughput for episodic append volume and on-disk format stability across the 2.x line we pin.</td>
+</tr>
+<tr>
+<td><code>fjall</code></td>
+<td><strong>Fallback (embedded KV/log)</strong></td>
+<td>Pure-Rust LSM-tree store; better write-amplification profile if episodic write volume outgrows redb</td>
+<td>Younger than redb. Held as a warm <code>MemoryStore</code> impl, swapped only if redb's B-tree write pattern becomes the bottleneck.</td>
+</tr>
+<tr>
+<td><code>sled</code></td>
+<td>Rejected</td>
+<td>Once the default pure-Rust embedded KV, but development has been in flux with a long-promised rewrite; we will not anchor durable memory on it</td>
+<td>Rejected on maintenance/flux risk, not capability. redb and fjall cover the space.</td>
+</tr>
+<tr>
+<td><code>sqlx</code> + Postgres</td>
+<td><strong>Primary (relational metadata + provenance ledger)</strong></td>
+<td>Async, compile-time-checked SQL; Postgres for the multi-node provenance/audit ledger linking every memory item to sources/tool-calls/model-pin/snapshot</td>
+<td>Mature. <strong>Verify</strong>: migration discipline and that compile-time query checking is wired into CI.</td>
+</tr>
+<tr>
+<td>SQLite — <strong>C library</strong> (via <code>sqlx</code>/<code>rusqlite</code>)</td>
+<td><strong>Fallback (dev relational)</strong></td>
+<td>Same <code>sqlx</code> code path, single-file DB for the dev profile. NB: this is the upstream <strong>C</strong> SQLite amalgamation linked into the binary — a non-Rust dependency isolated behind <code>sqlx</code> + the relational/<code>MemoryStore</code> seam (see §Non-Rust isolation).</td>
+<td>Dev/single-node only; production ledger is Postgres for HA. <strong>Planned:</strong> start on the C version and harden the system against it, then swap to a pure-Rust SQLite (Turso's rewrite, ex-<code>limbo</code>) behind the same seam — see the SQLite-swap spike in <a href="08-roadmap.html">08-roadmap.md</a>.</td>
+</tr>
+<tr>
+<td><code>foundationdb</code></td>
+<td><strong>Optional (scale-out state)</strong></td>
+<td>Ordered, transactional KV for very large multi-node memory in the biggest deployments</td>
+<td><strong>Ops-heavy</strong> and <strong>phase-gated</strong> — not in the default path. Behind <code>MemoryStore</code>; enabled only at a deployment scale that justifies the operational cost.</td>
+</tr>
+<tr>
+<td><code>pgvector</code></td>
+<td><strong>Optional (not primary)</strong></td>
+<td>Vectors co-located in Postgres if we ever want them next to relational metadata</td>
+<td>Not the primary vector path — that is qdrant/lancedb (§5). Optional convenience only.</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Decision.</strong> <code>redb</code> for embedded KV/log (fallback <code>fjall</code>), <code>sled</code> rejected for flux; <code>sqlx</code>+Postgres for the provenance ledger (SQLite for dev); <code>foundationdb</code> optional and phase-gated; <code>pgvector</code> optional, never the primary vector store. All implement <code>MemoryStore</code> / back the provenance ledger described in <a href="02-memory.html">02-memory.md</a>.</p>
+<hr />
+<h2 id="10-service-transport">10. Service &amp; transport<a class="headerlink" href="#10-service-transport" title="Permanent link">#</a></h2>
+<p>The service mesh and async substrate. The canon locks these as mature, low-risk infrastructure; included for completeness and because everything above assumes them.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Verdict</th>
+<th>Why</th>
+<th>Risk / what to verify</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tokio</code></td>
+<td><strong>Primary (async runtime)</strong></td>
+<td>The de-facto async runtime; every crate above assumes it</td>
+<td>Mature, low risk. Pin a major version workspace-wide.</td>
+</tr>
+<tr>
+<td><code>axum</code></td>
+<td><strong>Primary (HTTP API)</strong></td>
+<td>Tower-native, ergonomic, tokio-first; the <code>oncora-api</code> external surface</td>
+<td>Mature. Fallback <code>actix-web</code> is named in the canon but not needed.</td>
+</tr>
+<tr>
+<td><code>tonic</code></td>
+<td><strong>Primary (gRPC)</strong></td>
+<td>Standard Rust gRPC for the internal service mesh between agent workers and stores</td>
+<td>Mature. <strong>Verify</strong>: protobuf/codegen pinned and reproducible in CI.</td>
+</tr>
+<tr>
+<td><code>tower</code> + <code>tower-http</code></td>
+<td><strong>Primary (middleware)</strong></td>
+<td>Uniform timeout / retry / concurrency-limit / load-shed layers — this is where per-tool timeouts and backpressure (canon Concurrency) are enforced</td>
+<td>Mature. The MCP host leans on this for deterministic tool-call timeouts.</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Decision.</strong> <code>tokio</code> / <code>axum</code> / <code>tonic</code> / <code>tower</code> as locked. These are the stable floor under the riskier layers; no controversy.</p>
+<hr />
+<h2 id="11-observability">11. Observability<a class="headerlink" href="#11-observability" title="Permanent link">#</a></h2>
+<p>Structured run traces correlate agent runs end to end (canon). Tracing is the backbone of both debugging and the audit story.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Verdict</th>
+<th>Why</th>
+<th>Risk / what to verify</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tracing</code></td>
+<td><strong>Primary (instrumentation)</strong></td>
+<td>The standard structured, span-based instrumentation; agent steps/tool-calls/verdicts become spans</td>
+<td>Mature. <strong>Verify</strong>: span hygiene so PHI never lands in span fields (privacy non-negotiable).</td>
+</tr>
+<tr>
+<td><code>tracing-opentelemetry</code></td>
+<td><strong>Primary (bridge)</strong></td>
+<td>Bridges <code>tracing</code> spans to OpenTelemetry; correlates runs across services</td>
+<td>Mature-ish; <strong>verify</strong> version compatibility between <code>tracing</code>, the bridge, and the OTel SDK — this trio drifts and is a common breakage point.</td>
+</tr>
+<tr>
+<td>OpenTelemetry + collector</td>
+<td><strong>Primary (export/transport)</strong></td>
+<td>Vendor-neutral export to an on-prem collector inside the trust boundary</td>
+<td>On-prem collector only; <strong>verify</strong> exporter config keeps telemetry inside the VPC.</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Decision.</strong> <code>tracing</code> + <code>tracing-opentelemetry</code> + OpenTelemetry collector, on-prem. Lives in <code>oncora-telemetry</code>. The main standing risk is the <code>tracing</code>/bridge/SDK version triangle — pin all three together.</p>
+<hr />
+<h2 id="12-reliability-testing">12. Reliability / testing<a class="headerlink" href="#12-reliability-testing" title="Permanent link">#</a></h2>
+<p>The canon's pillar 4 (reliability &amp; benchmarking) and the typed-uncertainty invariants demand more than unit tests: property tests on invariants, fuzzing on parsers/tool inputs, snapshots on prompts/traces, microbenchmarks, and differential testing against baselines.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Verdict</th>
+<th>Why</th>
+<th>Risk / what to verify</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>proptest</code></td>
+<td><strong>Primary (property testing)</strong></td>
+<td>Invariants on memory write/read, uncertainty/confidence math, and parsers; shrinking finds minimal counterexamples</td>
+<td>Mature. Fallback <code>quickcheck</code> named in canon, not needed.</td>
+</tr>
+<tr>
+<td><code>cargo-fuzz</code> (libFuzzer)</td>
+<td><strong>Primary (fuzzing)</strong></td>
+<td>Fuzz the untrusted/parser surfaces — VCF, DICOM, JSON tool args — exactly where malformed input is most dangerous</td>
+<td>Mature. <strong>Verify</strong>: fuzz targets exist for every external-input parser; wire into CI as scheduled, not per-PR.</td>
+</tr>
+<tr>
+<td><code>insta</code></td>
+<td><strong>Primary (snapshot testing)</strong></td>
+<td>Lock agent prompts, traces, and manifests so prompt/format drift is caught in review</td>
+<td>Mature. Snapshots must be reviewed deliberately, not blanket-accepted.</td>
+</tr>
+<tr>
+<td><code>criterion</code></td>
+<td><strong>Primary (benchmarks)</strong></td>
+<td>Latency/throughput microbenchmarks with regression detection feeding CI gates</td>
+<td>Mature. Fallback <code>divan</code> named in canon.</td>
+</tr>
+<tr>
+<td>Differential testing</td>
+<td><strong>Primary (technique)</strong></td>
+<td>Cross-check agent outputs against deterministic oracles and computational baselines — directly serves the "beat baselines, reproducibly" pillar</td>
+<td>Not a single crate but a harness discipline in <code>oncora-eval</code>. <strong>Verify</strong>: golden sets and baselines are themselves pinned/versioned.</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Decision.</strong> <code>proptest</code> + <code>cargo-fuzz</code> + <code>insta</code> + <code>criterion</code> plus differential testing as a harness technique. The full benchmark + CI-gating story is in <a href="06-eval-benchmarking.html">06-eval-benchmarking.md</a>.</p>
+<hr />
+<h2 id="13-reproducibility-artifacts">13. Reproducibility / artifacts<a class="headerlink" href="#13-reproducibility-artifacts" title="Permanent link">#</a></h2>
+<p>Reproducibility is a non-negotiable, not a feature. The content-addressed store and pinning machinery make every run replayable and every benchmark re-derivable bit-for-bit.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Verdict</th>
+<th>Why</th>
+<th>Risk / what to verify</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>blake3</code> (CAS hashing)</td>
+<td><strong>Primary</strong></td>
+<td>Fast cryptographic hashing for content-addressing every artifact; the basis of deterministic replay</td>
+<td>Mature. <strong>Verify</strong>: hashing is canonical (stable byte representation before hashing) so identical inputs always hash identically.</td>
+</tr>
+<tr>
+<td>custom CAS over object store / FS</td>
+<td><strong>Primary</strong></td>
+<td>We own the content-addressed store behind the <code>ArtifactStore</code> trait — artifacts keyed by BLAKE3 digest, immutable, dedup-by-content</td>
+<td>We own it, so we own the risk. <strong>Verify</strong>: GC/retention policy never deletes anything a provenance record still references.</td>
+</tr>
+<tr>
+<td><code>serde</code> (+ <code>serde_json</code>, <code>ciborium</code> CBOR) manifests</td>
+<td><strong>Primary</strong></td>
+<td>Typed, versioned manifests for runs, memory entries, and tool IO; JSON for human-auditable surfaces, CBOR for compact payloads</td>
+<td>Mature. <strong>Verify</strong>: manifest schemas are versioned so old artifacts stay readable.</td>
+</tr>
+<tr>
+<td>deterministic seeds</td>
+<td><strong>Primary (technique)</strong></td>
+<td>Every stochastic step (sampling, self-consistency N-sampling) records its seed so a run replays identically</td>
+<td><strong>Verify</strong>: all randomness routes through a recorded, seeded source — no unseeded <code>rand</code> calls in the agent path.</td>
+</tr>
+<tr>
+<td>model / version pinning</td>
+<td><strong>Primary (technique)</strong></td>
+<td><code>ModelPin</code> + <code>SnapshotId</code> on every <code>Provenance</code> value pin the exact model and data snapshot per the canon uncertainty model</td>
+<td><strong>Verify</strong>: the model server reports a stable, recordable model identity (vLLM/TGI build + weights digest), not just a friendly name.</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Decision.</strong> BLAKE3-keyed custom CAS behind <code>ArtifactStore</code>, <code>serde</code>/CBOR manifests, recorded deterministic seeds, and model/snapshot pinning. This is what makes Oncora publishable; it lives in <code>oncora-artifacts</code> and is referenced throughout <a href="04-knowledge-and-data.html">04-knowledge-and-data.md</a>.</p>
+<hr />
+<h2 id="consolidated-risk-register">Consolidated Risk Register<a class="headerlink" href="#consolidated-risk-register" title="Permanent link">#</a></h2>
+<p>Likelihood and Impact are Low / Medium / High. "Owner-area" maps to the canon crate that owns the mitigation.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Risk</th>
+<th>Likelihood</th>
+<th>Impact</th>
+<th>Mitigation</th>
+<th>Owner-area</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rig</code> 0.x breaking change or insufficient tool-calling/streaming</td>
+<td>High</td>
+<td>Medium</td>
+<td>Wrap behind <code>oncora-agents</code> traits; in-house orchestrator on raw clients as fallback; verify tool-calling + streaming before committing</td>
+<td><code>oncora-agents</code></td>
+</tr>
+<tr>
+<td><code>swiftide</code> API churn breaks ingestion stages</td>
+<td>Medium</td>
+<td>Low</td>
+<td>We own the <code>oncora-ingest</code> pipeline contract; swiftide implements stages, not the API</td>
+<td><code>oncora-ingest</code></td>
+</tr>
+<tr>
+<td>vLLM/TGI server wire-format drift vs. <code>async-openai</code></td>
+<td>Medium</td>
+<td>High</td>
+<td>Pin server build; contract-test the deserialization; <code>reqwest</code> fallback <code>ModelProvider</code></td>
+<td><code>oncora-agents</code></td>
+</tr>
+<tr>
+<td><code>cozo</code> time-travel / Datalog immature at our scale</td>
+<td>Medium</td>
+<td>High</td>
+<td>Strict <code>GraphStore</code> trait; <code>indradb</code> fallback; verify time-travel + recursive-query perf early</td>
+<td><code>oncora-kg</code></td>
+</tr>
+<tr>
+<td><code>ort</code> / ONNX C++ surface — build or supply-chain issue</td>
+<td>Medium</td>
+<td>Medium</td>
+<td>Isolate behind <code>EmbeddingProvider</code>/<code>Calibrator</code>; pin ORT version + ONNX model digests; <code>candle</code> pure-Rust fallback</td>
+<td><code>oncora-retrieval</code></td>
+</tr>
+<tr>
+<td><code>rmcp</code> protocol/transport gaps vs. what we deploy</td>
+<td>Medium</td>
+<td>Medium</td>
+<td><code>ToolHost</code> trait owns audit/timeout/determinism; pin protocol version; in-house fill-in for missing transport</td>
+<td><code>oncora-mcp-host</code></td>
+</tr>
+<tr>
+<td><code>mistral.rs</code> model/quantization support shifts</td>
+<td>Medium</td>
+<td>Low</td>
+<td>Dev/air-gapped profile only; <code>ModelProvider</code> boundary; on-prem vLLM is the production path</td>
+<td><code>oncora-agents</code></td>
+</tr>
+<tr>
+<td><code>lancedb</code> ANN recall/versioning insufficient for imaging</td>
+<td>Low</td>
+<td>Medium</td>
+<td><code>VectorStore</code> trait; qdrant named-vectors fallback; verify recall at scale</td>
+<td><code>oncora-retrieval</code></td>
+</tr>
+<tr>
+<td><code>noodles</code> missing a genomics format/codec we need</td>
+<td>Low</td>
+<td>Medium</td>
+<td>Behind VCF MCP server (<code>ToolHost</code>); add support there; htslib only as last resort behind the boundary</td>
+<td><code>oncora-mcp-host</code></td>
+</tr>
+<tr>
+<td><code>dicom-rs</code> missing a transfer syntax/codec</td>
+<td>Low</td>
+<td>Medium</td>
+<td>Behind imaging MCP server; add codec support there rather than a C dependency in core</td>
+<td><code>oncora-mcp-host</code></td>
+</tr>
+<tr>
+<td><code>redb</code> write throughput insufficient for episodic volume</td>
+<td>Low</td>
+<td>Medium</td>
+<td><code>MemoryStore</code> trait; <code>fjall</code> LSM fallback; benchmark append throughput</td>
+<td><code>oncora-memory</code></td>
+</tr>
+<tr>
+<td><code>tracing</code> / <code>tracing-opentelemetry</code> / OTel SDK version mismatch</td>
+<td>Medium</td>
+<td>Low</td>
+<td>Pin all three together; smoke-test export in CI</td>
+<td><code>oncora-telemetry</code></td>
+</tr>
+<tr>
+<td>PHI leaks into spans/telemetry or to a cloud endpoint</td>
+<td>Low</td>
+<td>High</td>
+<td>Span-field hygiene; cloud providers off-by-default behind audited egress proxy; redaction in front of any external provider</td>
+<td><code>oncora-telemetry</code> / <code>oncora-api</code></td>
+</tr>
+<tr>
+<td>Non-deterministic replay (unseeded randomness, unstable model identity)</td>
+<td>Medium</td>
+<td>High</td>
+<td>All randomness through recorded seeds; model identity recorded as build + weights digest; replay tests in CI</td>
+<td><code>oncora-artifacts</code></td>
+</tr>
+<tr>
+<td><code>arrow</code> version skew across polars/duckdb breaks zero-copy</td>
+<td>Medium</td>
+<td>Low</td>
+<td>Align Arrow versions workspace-wide; verify in CI</td>
+<td><code>oncora-ingest</code></td>
+</tr>
+<tr>
+<td>Workspace-wide ecosystem churn (many 0.x crates)</td>
+<td>High</td>
+<td>Medium</td>
+<td>Trait boundaries everywhere; verify-before-committing checklist; pin and review upgrades</td>
+<td>all</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="non-rust-dependencies-and-how-they-are-isolated">Non-Rust dependencies and how they are isolated<a class="headerlink" href="#non-rust-dependencies-and-how-they-are-isolated" title="Permanent link">#</a></h2>
+<p>The platform is Rust-native end to end. There are exactly <strong>three</strong> sanctioned non-Rust surfaces, and each is isolated behind a named Rust trait so it never leaks into agent or domain logic.</p>
+<ol>
+<li>
+<p><strong>Model endpoints (HTTP, possibly remote).</strong> The vLLM/TGI on-prem server, and any opt-in cloud LLM, are non-Rust services reached over HTTP. They are isolated behind the <strong><code>ModelProvider</code></strong> trait in <code>oncora-core</code>; clients (<code>async-openai</code>, <code>async-anthropic</code>, <code>reqwest</code>) are concrete impls. <em>Justification:</em> GPU model serving is not a Rust workload; we consume it as a network contract and keep the trust boundary explicit. Cloud endpoints are off by default and only reachable through the audited egress proxy.</p>
+</li>
+<li>
+<p><strong>ONNX Runtime (<code>ort</code>, C++ bindings).</strong> Prebuilt ONNX embedders/classifiers/calibrators run on ORT, and <code>fastembed</code> uses <code>ort</code> underneath. Isolated behind <strong><code>EmbeddingProvider</code></strong> and <strong><code>Calibrator</code></strong>; ONNX model files are pinned and content-addressed. <em>Justification:</em> ORT has the mature operator coverage and prebuilt-model ecosystem that pure-Rust inference does not yet match; the C++ surface is contained to one trait boundary, and <code>candle</code> is the pure-Rust fallback if the bindings ever become a liability. <code>duckdb</code>'s embedded engine is a similar, self-contained native dependency, reached only through our query interface.</p>
+</li>
+<li>
+<p><strong>Third-party ontologies (data, not code).</strong> GO, Reactome, ChEMBL, UMLS, MONDO, HGNC are external <em>data</em> artifacts in foreign vocabularies/formats. They enter only through ingestion into <code>oxigraph</code>, are addressed by stable URIs, queried through the <strong><code>GraphStore</code></strong> trait, and pinned at snapshot granularity. <em>Justification:</em> this is reference data we read, never source we write; isolating it behind <code>GraphStore</code> + snapshot pinning keeps the rest of the system blind to ontology format churn and preserves reproducibility.</p>
+</li>
+</ol>
+<p>Everything else — graph stores, vector stores, genomics/DICOM IO, KV/log, the artifact store — is pure Rust or an embedded engine reached only through a trait. The genomics (<code>noodles</code>) and imaging (<code>dicom-rs</code>) parsers, though pure Rust, additionally sit behind the <strong><code>ToolHost</code></strong> MCP boundary, so even a parsing bug cannot reach the agent core directly.</p>
+<hr />
+<h2 id="verify-before-committing-checklist">Verify-before-committing checklist<a class="headerlink" href="#verify-before-committing-checklist" title="Permanent link">#</a></h2>
+<p>Crate maturity in the Rust AI/agent ecosystem is <strong>fast-moving</strong> — much of the above is 0.x and changes between minor releases. The trait boundaries are what make that survivable, but before we commit production code to any <em>Primary</em> choice, confirm the capability still holds. Re-run this checklist at the start of each implementation phase (<a href="08-roadmap.html">08-roadmap.md</a>).</p>
+<ul class="task-list">
+<li class="task-list-item"><input type="checkbox" disabled/> <strong><code>rig</code></strong> — current tool-calling (multi-tool + parallel) and streaming-completion maturity; provider trait works with a custom OpenAI-compatible base URL.</li>
+<li class="task-list-item"><input type="checkbox" disabled/> <strong><code>swiftide</code></strong> — transform-stage composition with our <code>EmbeddingProvider</code>/<code>VectorStore</code>; backpressure behavior.</li>
+<li class="task-list-item"><input type="checkbox" disabled/> <strong><code>async-openai</code> ↔ vLLM/TGI</strong> — custom base URL + on-prem auth; tool-call and streaming response shapes match the deployed server build.</li>
+<li class="task-list-item"><input type="checkbox" disabled/> <strong><code>async-anthropic</code></strong> — SDK currency vs. latest Messages API (tool use, streaming); redaction sits in front; path stays off-by-default.</li>
+<li class="task-list-item"><input type="checkbox" disabled/> <strong><code>candle</code></strong> — kernel/architecture coverage for our models; reproducible CUDA builds on target images.</li>
+<li class="task-list-item"><input type="checkbox" disabled/> <strong><code>mistral.rs</code></strong> — supported model families/quantizations; throughput on target hardware; OpenAI-compatible surface for <code>ModelProvider</code>.</li>
+<li class="task-list-item"><input type="checkbox" disabled/> <strong><code>ort</code></strong> — pinned ORT version; reproducible build; ONNX model digests pinned; no leakage past the trait.</li>
+<li class="task-list-item"><input type="checkbox" disabled/> <strong><code>rmcp</code></strong> — transports we deploy (stdio + streamable HTTP/SSE); client/host capability maturity; protocol version pinned.</li>
+<li class="task-list-item"><input type="checkbox" disabled/> <strong><code>qdrant</code></strong> — Rust client tracks deployed server; filtering + hybrid search cover retrieval needs.</li>
+<li class="task-list-item"><input type="checkbox" disabled/> <strong><code>lancedb</code></strong> — ANN index types/recall at scale; versioning semantics for reproducibility.</li>
+<li class="task-list-item"><input type="checkbox" disabled/> <strong><code>fastembed</code></strong> — embedder families available; ONNX models pinned/content-addressed.</li>
+<li class="task-list-item"><input type="checkbox" disabled/> <strong><code>oxigraph</code></strong> — bulk-load perf for full ontology snapshots; SPARQL feature coverage (property paths, aggregates).</li>
+<li class="task-list-item"><input type="checkbox" disabled/> <strong><code>cozo</code></strong> — time-travel semantics + recursive-Datalog perf at our volumes; embedded-vector recall. <em>(Highest-novelty; verify first.)</em></li>
+<li class="task-list-item"><input type="checkbox" disabled/> <strong><code>polars</code> / <code>duckdb</code> / <code>arrow</code></strong> — Arrow versions aligned; memory behavior on largest omics matrices.</li>
+<li class="task-list-item"><input type="checkbox" disabled/> <strong><code>noodles</code></strong> — format/version + codec coverage for our cohorts; large BAM/CRAM performance.</li>
+<li class="task-list-item"><input type="checkbox" disabled/> <strong><code>dicom-rs</code></strong> — transfer-syntax/codec coverage for our imaging modalities; pixel decoding supported or pluggable.</li>
+<li class="task-list-item"><input type="checkbox" disabled/> <strong><code>redb</code></strong> — episodic-append write throughput; on-disk format stability across pinned 2.x.</li>
+<li class="task-list-item"><input type="checkbox" disabled/> <strong><code>tracing</code> / <code>tracing-opentelemetry</code> / OTel SDK</strong> — versions pinned together; export stays on-prem; no PHI in span fields.</li>
+<li class="task-list-item"><input type="checkbox" disabled/> <strong><code>cargo-fuzz</code></strong> — a fuzz target exists for every external-input parser (VCF, DICOM, JSON tool args).</li>
+<li class="task-list-item"><input type="checkbox" disabled/> <strong>Reproducibility</strong> — all randomness seeded + recorded; model identity recorded as build + weights digest; replay test passes in CI.</li>
+</ul>
+<p>The rule stands: <strong>trust the trait boundary, not the crate version.</strong> If verification fails for any Primary, the named Fallback is already a registered impl of the same trait, and switching is a configuration change, not a rewrite.</p>
+<div class="pager">
+<a class="prev" href="04-knowledge-and-data.html"><span class="lbl">Previous</span><span class="ttl">Knowledge & data</span></a>
+<a class="next" href="06-eval-benchmarking.html"><span class="lbl">Next</span><span class="ttl">Eval & benchmarks</span></a>
+</div>
+</article>
+</main>
+</div>
+<script>
+function syncScrim(){document.querySelector('.scrim').classList.toggle('show',document.body.classList.contains('nav-open'));
+  document.getElementById('sidebar').classList.toggle('open',document.body.classList.contains('nav-open'));}
+new MutationObserver(syncScrim).observe(document.body,{attributes:true,attributeFilter:['class']});
+</script>
+<script src="assets/js/highlight.min.js"></script>
+<script src="assets/js/rust.min.js"></script>
+<script src="assets/js/mermaid.min.js"></script>
+<script>
+  document.querySelectorAll('pre code').forEach(function(el){ try{ hljs.highlightElement(el); }catch(e){} });
+  mermaid.initialize({
+    startOnLoad:true, securityLevel:'loose',
+    theme:'base',
+    themeVariables:{
+      darkMode:true, background:'#0c1726',
+      primaryColor:'#13233c', primaryTextColor:'#e6edf6', primaryBorderColor:'#2dd4bf',
+      lineColor:'#7dd3fc', secondaryColor:'#16243d', tertiaryColor:'#0e1b2e',
+      fontFamily:"'Segoe UI',system-ui,sans-serif", fontSize:'15px',
+      clusterBkg:'#0e1b2e', clusterBorder:'#2b405f',
+      actorBkg:'#13233c', actorBorder:'#2dd4bf', actorTextColor:'#e6edf6',
+      signalColor:'#9fb3c8', signalTextColor:'#cbd9ea', labelBoxBkgColor:'#13233c', labelBoxBorderColor:'#2b405f'
+    }
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Architecture · Oncora</title>
+<meta name="description" content="Oncora — Architecture"/>
+<link rel="icon" href="assets/svg/oncora-mark.svg"/>
+<link rel="stylesheet" href="assets/css/hljs-github-dark.css"/>
+<link rel="stylesheet" href="assets/css/style.css"/>
+</head>
+<body>
+<button class="menu-btn" aria-label="Menu" onclick="document.body.classList.toggle('nav-open')">☰</button>
+<div class="scrim" onclick="document.body.classList.remove('nav-open')"></div>
+<div class="layout">
+<aside class="sidebar" id="sidebar">
+  <a class="brand" href="index.html">
+    <img src="assets/svg/oncora-mark.svg" alt="Oncora"/>
+    <span>
+      <span class="name">Onc<span>ora</span></span>
+      <span class="sub">Oncology Reasoning Agents</span>
+    </span>
+  </a>
+  <nav class="nav">
+<div class="group">Start</div>
+<a class="nav-link" href="index.html"><span>Home</span></a>
+<a class="nav-link" href="00-overview.html"><span class="num">00</span><span>Overview</span></a>
+<div class="group">Architecture</div>
+<a class="nav-link active" href="01-architecture.html"><span class="num">01</span><span>Architecture</span></a>
+<a class="nav-link" href="02-memory.html"><span class="num">02</span><span>Agent memory</span></a>
+<a class="nav-link" href="03-uncertainty-reliability.html"><span class="num">03</span><span>Uncertainty</span></a>
+<a class="nav-link" href="04-knowledge-and-data.html"><span class="num">04</span><span>Knowledge & data</span></a>
+<div class="group">Engineering</div>
+<a class="nav-link" href="05-tech-decisions.html"><span class="num">05</span><span>Tech decisions</span></a>
+<a class="nav-link" href="06-eval-benchmarking.html"><span class="num">06</span><span>Eval & benchmarks</span></a>
+<a class="nav-link" href="07-repo-layout.html"><span class="num">07</span><span>Repo layout</span></a>
+<a class="nav-link" href="08-roadmap.html"><span class="num">08</span><span>Roadmap & ops</span></a>
+  </nav>
+  <div class="foot">
+    Rust-native · on-prem · MCP<br/>
+    <a href="https://github.com/NahButch/oncora">github.com/NahButch/oncora</a><br/>
+    <span style="color:#475569">Built 2026-06-03</span>
+  </div>
+</aside>
+<main class="main">
+<div class="page-banner"><img src="assets/svg/banner-architecture.svg" alt="Architecture illustration"/></div>
+<article class="content">
+<h1 id="01-architecture">01 — Architecture<a class="headerlink" href="#01-architecture" title="Permanent link">#</a></h1>
+<blockquote>
+<p>Master architecture document for <strong>Oncora</strong> (Oncology Reasoning Agents).
+Authoritative decisions live in the internal design canon; this document operationalizes them.
+Deep-dives: <a href="00-overview.html">00-overview.md</a> · <a href="02-memory.html">02-memory.md</a> · <a href="03-uncertainty-reliability.html">03-uncertainty-reliability.md</a> · <a href="04-knowledge-and-data.html">04-knowledge-and-data.md</a> · <a href="05-tech-decisions.html">05-tech-decisions.md</a> · <a href="06-eval-benchmarking.html">06-eval-benchmarking.md</a> · <a href="07-repo-layout.html">07-repo-layout.md</a> · <a href="08-roadmap.html">08-roadmap.md</a></p>
+</blockquote>
+<p>Oncora is a <strong>reproducible, uncertainty-aware agentic reasoning platform for oncology drug discovery</strong>. It is Rust-native end to end, on-prem/VPC-only by default, and built around four pillars: multimodal reasoning, agent memory, robustness &amp; uncertainty, and reliability &amp; benchmarking. This document recaps the system context, presents the C4 container view, breaks down the component crates, specifies the agent runtime and orchestration, walks an end-to-end target-discovery workflow, and pins the trait boundaries that keep providers swappable.</p>
+<hr />
+<h2 id="1-system-context-boundaries">1. System context &amp; boundaries<a class="headerlink" href="#1-system-context-boundaries" title="Permanent link">#</a></h2>
+<h3 id="11-actors">1.1 Actors<a class="headerlink" href="#11-actors" title="Permanent link">#</a></h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Actor</th>
+<th>Role</th>
+<th>Trust</th>
+<th>Primary entry</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Scientist</strong></td>
+<td>Initiates discovery workflows; consumes evidence-bearing answers; receives abstentions/escalations</td>
+<td>Authenticated, inside boundary</td>
+<td><code>oncora-api</code> (HTTP/gRPC)</td>
+</tr>
+<tr>
+<td><strong>Reviewer</strong></td>
+<td>Human expert who adjudicates escalated decisions and approves promotions of semantic memory</td>
+<td>Authenticated, inside boundary</td>
+<td><code>oncora-api</code> review queue</td>
+</tr>
+<tr>
+<td><strong>Automated pipeline</strong></td>
+<td>Scheduled/CI-driven runs: ingestion, re-indexing, benchmark gating, batch hypotheses</td>
+<td>Service identity, inside boundary</td>
+<td><code>oncora-api</code> (gRPC) / <code>oncora-cli</code></td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="12-trust-boundary">1.2 Trust boundary<a class="headerlink" href="#12-trust-boundary" title="Permanent link">#</a></h3>
+<p>The trust boundary is the <strong>VPC</strong>. PHI and source data never leave it. Inside the boundary live every Oncora service, every backing store, the on-prem model server, and the internal MCP servers. The only sanctioned path out is an <strong>explicit egress proxy</strong> for opt-in cloud model endpoints; nothing else may dial outbound. Hard rules carried from the canon:</p>
+<ul>
+<li><strong>No writes to source data</strong> — snapshots are read-only inputs.</li>
+<li><strong>Provenance on every claim</strong> — each assertion carries sources, tool calls, model pin, snapshot id.</li>
+<li><strong>Deterministic, audited tool calls</strong> — every MCP call is recorded to episodic memory and the provenance ledger.</li>
+<li><strong>Reproducibility</strong> — pinned models, pinned data snapshots, content-addressed artifacts via BLAKE3, deterministic replay.</li>
+</ul>
+<h3 id="13-external-model-endpoints">1.3 External model endpoints<a class="headerlink" href="#13-external-model-endpoints" title="Permanent link">#</a></h3>
+<p>Model inference is abstracted behind <code>ModelProvider</code>. The default is <strong>on-prem</strong> (vLLM/TGI OpenAI-compatible, or local <code>mistral.rs</code>/<code>candle</code>). Cloud endpoints (Anthropic, OpenAI-compatible) are <strong>opt-in only</strong> and reachable solely through the egress proxy; a run that touches a cloud endpoint records that fact in its model pin.</p>
+<h3 id="14-snapshotted-data-sources">1.4 Snapshotted data sources<a class="headerlink" href="#14-snapshotted-data-sources" title="Permanent link">#</a></h3>
+<p>All knowledge inputs enter as <strong>immutable, versioned snapshots</strong> identified by a <code>SnapshotId</code>: literature corpora, omics/VCF datasets, imaging (DICOM) sets, and ontology dumps (GO, Reactome, ChEMBL, UMLS, MONDO, HGNC). Snapshots are the unit of reproducibility — a memory entry or claim is replayable because it pins the snapshot it was derived from.</p>
+<pre class="mermaid">flowchart LR
+  Scientist[Scientist] --&gt; API
+  Reviewer[Reviewer] --&gt; API
+  Pipeline[Automated pipeline] --&gt; API
+  subgraph VPC[&quot;Trust boundary VPC&quot;]
+    API[oncora-api]
+    Core[&quot;Oncora services + stores&quot;]
+    LocalModel[&quot;On-prem model server&quot;]
+    API --&gt; Core
+    Core --&gt; LocalModel
+  end
+  Core -. &quot;egress proxy&lt;br/&gt;opt-in only&quot; .-&gt; Cloud[&quot;Cloud model endpoints&quot;]
+  Snap[&quot;Snapshotted sources&lt;br/&gt;literature omics imaging ontologies&quot;] --&gt; Core</pre>
+<hr />
+<h2 id="2-c4-container-diagram">2. C4 container diagram<a class="headerlink" href="#2-c4-container-diagram" title="Permanent link">#</a></h2>
+<pre class="mermaid">flowchart TB
+  Scientist[Scientist]
+  Reviewer[Reviewer]
+  Pipeline[Automated pipeline]
+
+  subgraph VPC[&quot;Trust boundary VPC&quot;]
+    direction TB
+
+    API[&quot;oncora-api&lt;br/&gt;axum + tonic&lt;br/&gt;auth RBAC&quot;]
+
+    subgraph Runtime[&quot;Agent runtime&quot;]
+      Agents[&quot;oncora-agents&lt;br/&gt;planner specialists&lt;br/&gt;verifier responder&quot;]
+      Unc[&quot;oncora-uncertainty&lt;br/&gt;calibration conformal&lt;br/&gt;verifiers abstention&quot;]
+      MCP[&quot;oncora-mcp-host&lt;br/&gt;rmcp tool registry&lt;br/&gt;audit routing&quot;]
+    end
+
+    subgraph Knowledge[&quot;Knowledge and data&quot;]
+      Retr[&quot;oncora-retrieval&lt;br/&gt;hybrid fusion&lt;br/&gt;embeddings&quot;]
+      KG[&quot;oncora-kg&lt;br/&gt;oxigraph + cozo&lt;br/&gt;schema SPARQL Datalog&quot;]
+      Mem[&quot;oncora-memory&lt;br/&gt;5 memory types&lt;br/&gt;read write paths&quot;]
+      Ingest[&quot;oncora-ingest&lt;br/&gt;swiftide pipelines&quot;]
+    end
+
+    subgraph Platform[&quot;Platform&quot;]
+      Arti[&quot;oncora-artifacts&lt;br/&gt;CAS blake3 manifests&quot;]
+      Eval[&quot;oncora-eval&lt;br/&gt;benchmark harness&lt;br/&gt;CI gating&quot;]
+      Tele[&quot;oncora-telemetry&lt;br/&gt;tracing OTel&quot;]
+    end
+
+    subgraph Stores[&quot;Backing stores&quot;]
+      Qdrant[&quot;qdrant&lt;br/&gt;text vectors&quot;]
+      Lance[&quot;lancedb&lt;br/&gt;multimodal vectors&quot;]
+      Oxi[&quot;oxigraph&lt;br/&gt;RDF triplestore&quot;]
+      Cozo[&quot;cozo&lt;br/&gt;evidence graph&lt;br/&gt;time travel&quot;]
+      PG[&quot;Postgres&lt;br/&gt;provenance ledger&quot;]
+      Redb[&quot;redb&lt;br/&gt;episodic working KV&quot;]
+      Obj[&quot;Object store&lt;br/&gt;CAS payloads&quot;]
+    end
+
+    LocalModel[&quot;On-prem model server&lt;br/&gt;vLLM TGI mistral.rs&quot;]
+
+    subgraph MCPServers[&quot;MCP servers&quot;]
+      VcfMcp[&quot;VCF server&lt;br/&gt;noodles&quot;]
+      DicomMcp[&quot;DICOM server&lt;br/&gt;dicom-rs&quot;]
+      CalcMcp[&quot;Calculator oracles&quot;]
+      IntMcp[&quot;Internal tool servers&quot;]
+    end
+
+    API --&gt; Agents
+    Agents --&gt; Mem
+    Agents --&gt; Retr
+    Agents --&gt; KG
+    Agents --&gt; MCP
+    Agents --&gt; Unc
+    Unc --&gt; MCP
+    Eval --&gt; Agents
+
+    Retr --&gt; Qdrant
+    Retr --&gt; Lance
+    Retr --&gt; KG
+    KG --&gt; Oxi
+    KG --&gt; Cozo
+    Mem --&gt; Redb
+    Mem --&gt; KG
+    Mem --&gt; Retr
+    Mem --&gt; Arti
+    Mem --&gt; PG
+    Ingest --&gt; KG
+    Ingest --&gt; Retr
+    Ingest --&gt; Arti
+    Arti --&gt; Obj
+
+    MCP --&gt; VcfMcp
+    MCP --&gt; DicomMcp
+    MCP --&gt; CalcMcp
+    MCP --&gt; IntMcp
+
+    Agents --&gt; LocalModel
+    Retr --&gt; LocalModel
+
+    Agents --&gt; Tele
+    API --&gt; Tele
+  end
+
+  Scientist --&gt; API
+  Reviewer --&gt; API
+  Pipeline --&gt; API
+  Agents -. &quot;egress proxy&quot; .-&gt; Cloud[&quot;Cloud model endpoints&quot;]
+  Snap[&quot;Snapshotted sources&quot;] --&gt; Ingest</pre>
+<p>The diagram preserves the canonical <strong>dependency direction</strong>: arrows point inward toward <code>oncora-core</code> (omitted as a node — it is the shared type/trait substrate every crate links). Backing stores and MCP servers are concrete providers behind core traits.</p>
+<hr />
+<h2 id="3-component-breakdown">3. Component breakdown<a class="headerlink" href="#3-component-breakdown" title="Permanent link">#</a></h2>
+<p>Crates are namespaced <code>oncora-*</code> in a single Cargo workspace. Dependencies point inward toward <code>oncora-core</code>; <strong>no cycles</strong>. Foundational crates have no internal deps.</p>
+<h3 id="oncora-core">oncora-core<a class="headerlink" href="#oncora-core" title="Permanent link">#</a></h3>
+<p>The type and trait substrate. Defines canonical uncertainty types (<code>Confidence</code>, <code>Provenance</code>, <code>Evidence</code>, <code>Verdict</code>), ids, errors (<code>thiserror</code>), and the provider-swappable traits (§7). Everything depends on it; it depends on nothing internal.</p>
+<h3 id="oncora-telemetry">oncora-telemetry<a class="headerlink" href="#oncora-telemetry" title="Permanent link">#</a></h3>
+<p>Structured tracing and OpenTelemetry wiring (<code>tracing</code> + <code>tracing-opentelemetry</code> → OTel collector). Correlates agent runs into spans for audit and replay. Foundational, no internal deps.</p>
+<h3 id="oncora-artifacts">oncora-artifacts<a class="headerlink" href="#oncora-artifacts" title="Permanent link">#</a></h3>
+<p>Content-addressed store (CAS) over object store/filesystem. BLAKE3 hashing, <code>serde</code>/CBOR manifests. The backbone of deterministic replay — payloads (tool outputs, prompts, snapshots) are addressed by content hash. Depends on core. See <a href="04-knowledge-and-data.html">04-knowledge-and-data.md</a>.</p>
+<h3 id="oncora-mcp-host">oncora-mcp-host<a class="headerlink" href="#oncora-mcp-host" title="Permanent link">#</a></h3>
+<p><code>rmcp</code> host/client, tool registry, and audit. Routes every domain tool call to the right MCP server, enforces determinism, and records calls to episodic memory + provenance ledger. Depends on core, telemetry.</p>
+<h3 id="oncora-kg">oncora-kg<a class="headerlink" href="#oncora-kg" title="Permanent link">#</a></h3>
+<p>The dual-store knowledge graph: <code>oxigraph</code> (RDF/SPARQL ontology layer) + <code>cozo</code> (Datalog evidence/assertion graph with time-travel and per-edge confidence). Owns the canonical KG schema. Depends on core. See <a href="04-knowledge-and-data.html">04-knowledge-and-data.md</a>.</p>
+<h3 id="oncora-retrieval">oncora-retrieval<a class="headerlink" href="#oncora-retrieval" title="Permanent link">#</a></h3>
+<p>Hybrid retrieval: vector search (<code>qdrant</code> for text/RAG, <code>lancedb</code> for multimodal/imaging) + graph queries (via <code>oncora-kg</code>) + recency/usage scoring, fused into a single relevance score. Hosts <code>fastembed</code>/<code>candle</code> embeddings behind <code>EmbeddingProvider</code>. Depends on core, kg.</p>
+<h3 id="oncora-ingest">oncora-ingest<a class="headerlink" href="#oncora-ingest" title="Permanent link">#</a></h3>
+<p><code>swiftide</code>-based streaming pipelines for literature, omics, imaging, and KG ingestion. Reads immutable snapshots, writes to KG, retrieval indexes, and CAS. Never writes back to source. Depends on core, kg, retrieval, artifacts.</p>
+<h3 id="oncora-memory">oncora-memory<a class="headerlink" href="#oncora-memory" title="Permanent link">#</a></h3>
+<p>The five memory types — working, episodic, semantic, procedural, provenance — and the write/read paths (dedup → conflict resolution → consolidation → decay; hybrid read under token budget). Depends on core, kg, retrieval, artifacts. See <a href="02-memory.html">02-memory.md</a>.</p>
+<h3 id="oncora-uncertainty">oncora-uncertainty<a class="headerlink" href="#oncora-uncertainty" title="Permanent link">#</a></h3>
+<p>Calibrated confidence, calibration methods (post-hoc, ECE-tracked), conformal prediction, verifiers (citation grounding / NLI entailment, oracle grounding), and the abstention/escalation policy. Depends on core, mcp-host. See <a href="03-uncertainty-reliability.html">03-uncertainty-reliability.md</a>.</p>
+<h3 id="oncora-agents">oncora-agents<a class="headerlink" href="#oncora-agents" title="Permanent link">#</a></h3>
+<p>The <code>rig</code>-backed agent runtime: planner, domain specialists, verifier, uncertainty-scorer hook, responder, and the agent loop. Owns concurrency and MCP tool routing at the orchestration level. Depends on core, memory, retrieval, kg, mcp-host, uncertainty.</p>
+<h3 id="oncora-eval">oncora-eval<a class="headerlink" href="#oncora-eval" title="Permanent link">#</a></h3>
+<p>Benchmark harness, golden sets, metrics, and CI gating against human-expert and computational baselines. Depends on core, agents, and the rest. See <a href="06-eval-benchmarking.html">06-eval-benchmarking.md</a>.</p>
+<h3 id="oncora-api">oncora-api<a class="headerlink" href="#oncora-api" title="Permanent link">#</a></h3>
+<p><code>axum</code> (HTTP) + <code>tonic</code> (gRPC) services, auth, RBAC. The sole entry point across the trust boundary. Depends on agents, memory, retrieval, kg.</p>
+<h3 id="oncora-cli">oncora-cli<a class="headerlink" href="#oncora-cli" title="Permanent link">#</a></h3>
+<p>Operator + developer CLI, including deterministic replay. Depends on api/agents. See <a href="07-repo-layout.html">07-repo-layout.md</a>.</p>
+<hr />
+<h2 id="4-agent-runtime-orchestration">4. Agent runtime &amp; orchestration<a class="headerlink" href="#4-agent-runtime-orchestration" title="Permanent link">#</a></h2>
+<h3 id="41-multi-agent-topology">4.1 Multi-agent topology<a class="headerlink" href="#41-multi-agent-topology" title="Permanent link">#</a></h3>
+<p>The orchestration is a fixed pipeline with memory read/written throughout: <strong>Planner → Domain Specialists → Verifier → Uncertainty Scorer → Responder</strong>. The planner decomposes the task and dispatches to specialists (genomics, literature, imaging, clinical) that call domain MCP tools. The verifier checks claims against retrieved sources and oracle outputs; the uncertainty scorer assigns calibrated confidence and computes a <code>Verdict</code>; the responder either answers, abstains, or escalates.</p>
+<pre class="mermaid">flowchart TB
+  Planner[Planner agent]
+  subgraph Specialists[&quot;Domain specialists&quot;]
+    Gen[Genomics]
+    Lit[Literature]
+    Img[Imaging]
+    Clin[Clinical]
+  end
+  Verifier[Verifier]
+  Scorer[Uncertainty scorer]
+  Responder[Responder]
+
+  Memory[(oncora-memory)]
+  Tools[&quot;MCP tools&lt;br/&gt;VCF DICOM calculators&quot;]
+
+  Planner --&gt; Specialists
+  Gen --&gt; Tools
+  Lit --&gt; Tools
+  Img --&gt; Tools
+  Clin --&gt; Tools
+  Specialists --&gt; Verifier
+  Verifier --&gt; Scorer
+  Scorer --&gt; Responder
+
+  Planner &lt;--&gt; Memory
+  Specialists &lt;--&gt; Memory
+  Verifier &lt;--&gt; Memory
+  Scorer --&gt; Memory
+  Responder --&gt; Memory
+
+  Scorer -. abstain .-&gt; Responder
+  Scorer -. &quot;escalate&lt;br/&gt;to reviewer&quot; .-&gt; Responder</pre>
+<h3 id="42-the-agent-loop">4.2 The agent loop<a class="headerlink" href="#42-the-agent-loop" title="Permanent link">#</a></h3>
+<p>Each run executes a structured loop. Memory is <strong>read at perceive</strong> and <strong>written at consolidate</strong>; the loop terminates in one of three verdicts.</p>
+<pre class="mermaid">stateDiagram-v2
+  [*] --&gt; Perceive
+  Perceive --&gt; Plan : retrieve + memory read
+  Plan --&gt; Act
+  Act --&gt; Observe : MCP tool calls
+  Observe --&gt; Reflect
+  Reflect --&gt; Score : verify claims
+  Score --&gt; Decide : calibrated confidence
+  Decide --&gt; Accept : within thresholds
+  Decide --&gt; Abstain : low confidence&lt;br/&gt;or wide conformal set
+  Decide --&gt; Escalate : oracle disagreement&lt;br/&gt;or policy trigger
+  Decide --&gt; Plan : replan if recoverable
+  Accept --&gt; Consolidate
+  Abstain --&gt; Consolidate
+  Escalate --&gt; Consolidate
+  Consolidate --&gt; [*] : memory write</pre>
+<h3 id="43-concurrency-model">4.3 Concurrency model<a class="headerlink" href="#43-concurrency-model" title="Permanent link">#</a></h3>
+<p>Built on <code>tokio</code> with <strong>structured concurrency per run</strong>:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Concern</th>
+<th>Mechanism</th>
+<th>Rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Cancellation</td>
+<td>per-run <code>CancellationToken</code></td>
+<td>One token cancels the whole run subtree on timeout, abort, or client disconnect</td>
+</tr>
+<tr>
+<td>Tool/model timeouts</td>
+<td><code>tower</code> timeout layers</td>
+<td>Uniform, per-tool deadlines; no unbounded waits on an MCP server or model</td>
+</tr>
+<tr>
+<td>Backpressure</td>
+<td>bounded <code>tokio::mpsc</code> channels</td>
+<td>Producers block rather than balloon memory; flow control between stages</td>
+</tr>
+<tr>
+<td>Concurrency limits</td>
+<td><code>tokio::sync::Semaphore</code></td>
+<td>Cap concurrent model calls and per-server tool calls to protect GPUs and oracles</td>
+</tr>
+<tr>
+<td>Structured scope</td>
+<td>task tracker / <code>JoinSet</code> per run</td>
+<td>Child tasks are owned by the run; nothing outlives its parent scope</td>
+</tr>
+</tbody>
+</table></div>
+<p>Specialists run concurrently under a shared semaphore; the planner fans out then joins. A cancelled or timed-out run propagates the <code>CancellationToken</code> so in-flight tool calls are dropped and recorded as such in episodic memory.</p>
+<h3 id="44-mcp-tool-routing">4.4 MCP tool routing<a class="headerlink" href="#44-mcp-tool-routing" title="Permanent link">#</a></h3>
+<p><code>oncora-mcp-host</code> is the single chokepoint for domain tools. It holds the <code>rmcp</code> tool registry, resolves a requested tool to its server (VCF/<code>noodles</code>, DICOM/<code>dicom-rs</code>, calculators, internal servers), enforces a <code>tower</code> timeout, executes the call <strong>deterministically</strong>, and records it to episodic memory and the provenance ledger with a <code>ToolCallId</code>. Tool inputs are validated and fuzz-tested (<code>cargo-fuzz</code>). Calculators and KG act as <strong>deterministic oracles</strong> for grounding — their outputs are ground truth the verifier checks against.</p>
+<hr />
+<h2 id="5-end-to-end-target-discovery-workflow">5. End-to-end target-discovery workflow<a class="headerlink" href="#5-end-to-end-target-discovery-workflow" title="Permanent link">#</a></h2>
+<p>A scientist asks Oncora to nominate and substantiate a candidate target. The sequence shows where memory is read/written and where abstention/escalation can trigger.</p>
+<pre class="mermaid">sequenceDiagram
+  actor Sci as Scientist
+  participant Plan as Planner
+  participant Mem as Memory
+  participant Retr as Retrieval
+  participant KG as KG
+  participant Tools as Domain MCP tools
+  participant Ver as Verifier
+  participant Unc as Uncertainty scorer
+  participant Resp as Responder
+
+  Sci-&gt;&gt;Plan: target discovery query
+  Plan-&gt;&gt;Mem: read prior context
+  Mem--&gt;&gt;Plan: working + episodic + semantic recall
+  Plan-&gt;&gt;Retr: hybrid retrieve
+  Retr-&gt;&gt;KG: SPARQL + Datalog
+  KG--&gt;&gt;Retr: ontology + evidence subgraph
+  Retr--&gt;&gt;Plan: fused evidence set
+
+  Plan-&gt;&gt;Tools: VCF variant lookup
+  Tools--&gt;&gt;Plan: variant calls
+  Plan-&gt;&gt;Tools: imaging features
+  Tools--&gt;&gt;Plan: imaging embeddings
+  Plan-&gt;&gt;Tools: calculator oracle
+  Tools--&gt;&gt;Plan: deterministic result
+
+  Plan-&gt;&gt;Ver: claims + provenance
+  Ver-&gt;&gt;KG: oracle grounding check
+  Ver-&gt;&gt;Retr: citation NLI entailment
+  Ver--&gt;&gt;Unc: verified claims + contradictions
+
+  Unc-&gt;&gt;Unc: calibrate + conformal set
+  alt within thresholds
+    Unc-&gt;&gt;Resp: Accept
+    Resp-&gt;&gt;Mem: consolidate semantic + procedural
+    Resp--&gt;&gt;Sci: answer with evidence + confidence
+  else low confidence or wide set
+    Unc-&gt;&gt;Resp: Abstain reason
+    Resp-&gt;&gt;Mem: log abstention
+    Resp--&gt;&gt;Sci: abstain with rationale
+  else oracle disagreement
+    Unc-&gt;&gt;Resp: Escalate to reviewer
+    Resp-&gt;&gt;Mem: log escalation
+    Resp--&gt;&gt;Sci: escalated to human review
+  end</pre>
+<p>Memory is <strong>read once at perceive</strong> (planner pulls cross-session context keyed by <code>(scientist, project, workflow)</code>) and <strong>written at consolidate</strong> (accepted findings promote toward semantic memory and successful plans toward procedural memory; abstentions and escalations are logged with reason). Every artifact carries its snapshot id and model pin, so the entire run is replayable.</p>
+<hr />
+<h2 id="6-data-flow-narrative">6. Data flow narrative<a class="headerlink" href="#6-data-flow-narrative" title="Permanent link">#</a></h2>
+<p>A run threads four currents through the system:</p>
+<ol>
+<li>
+<p><strong>Knowledge in.</strong> Snapshots flow through <code>oncora-ingest</code> (<code>swiftide</code>) into three sinks: the KG (<code>oxigraph</code> canonical entities + <code>cozo</code> evidence graph), the vector indexes (<code>qdrant</code> text, <code>lancedb</code> multimodal), and CAS payloads in the object store. Ingest never mutates source data; each indexed item is content-addressed and snapshot-tagged.</p>
+</li>
+<li>
+<p><strong>Context out.</strong> At perceive, <code>oncora-retrieval</code> fuses vector hits, graph queries, and recency/usage scores into a relevance-ranked context set, assembled under a token budget. <code>oncora-memory</code> overlays cross-session recall.</p>
+</li>
+<li>
+<p><strong>Reasoning + grounding.</strong> <code>oncora-agents</code> plans and dispatches specialists, which invoke domain tools through <code>oncora-mcp-host</code>. Tool calls hit deterministic oracles (calculators, KG) and parsers (VCF via <code>noodles</code>, DICOM via <code>dicom-rs</code>). The verifier grounds claims; <code>oncora-uncertainty</code> calibrates confidence, computes conformal sets, and emits a <code>Verdict</code>.</p>
+</li>
+<li>
+<p><strong>Audit + provenance.</strong> Every step — tool call, decision, verdict — is traced (<code>oncora-telemetry</code>), logged to episodic memory (<code>redb</code> + CAS), and attributed in the Postgres provenance ledger. The result: every claim returned to the scientist carries <code>Provenance { sources, tool_calls, model, snapshot }</code>, and any run can be deterministically replayed via <code>oncora-cli</code>.</p>
+</li>
+</ol>
+<p>The closed loop — snapshot in, evidence out, provenance recorded — is what makes Oncora reproducible enough to publish.</p>
+<hr />
+<h2 id="7-key-trait-boundaries">7. Key trait boundaries<a class="headerlink" href="#7-key-trait-boundaries" title="Permanent link">#</a></h2>
+<p>Provider-swappable boundaries live in <code>oncora-core</code> (or per-crate <code>traits</code> modules). Concrete implementations are the only place a third-party or non-Rust dependency may appear, and each is justified and isolated. This is what keeps the platform portable across stores and model backends. See <a href="05-tech-decisions.html">05-tech-decisions.md</a>.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Trait</th>
+<th>Responsibility</th>
+<th>Primary impl</th>
+<th>Fallback / swap target</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ModelProvider</code></td>
+<td>Text generation + chat/tool-calling</td>
+<td>on-prem OpenAI-compatible<br/>vLLM TGI via <code>async-openai</code></td>
+<td>Anthropic SDK · local <code>mistral.rs</code>/<code>candle</code></td>
+</tr>
+<tr>
+<td><code>EmbeddingProvider</code></td>
+<td>Batched embeddings</td>
+<td><code>fastembed</code> ONNX via <code>ort</code></td>
+<td><code>candle</code>-hosted models</td>
+</tr>
+<tr>
+<td><code>VectorStore</code></td>
+<td>ANN search + payload filtering</td>
+<td><code>qdrant</code></td>
+<td><code>lancedb</code> · embedded <code>hnsw_rs</code> for dev</td>
+</tr>
+<tr>
+<td><code>GraphStore</code></td>
+<td>Ontology + evidence graph queries</td>
+<td><code>oxigraph</code> SPARQL + <code>cozo</code> Datalog</td>
+<td><code>indradb</code></td>
+</tr>
+<tr>
+<td><code>MemoryStore</code></td>
+<td>Working/episodic/semantic/procedural persistence</td>
+<td><code>redb</code> + <code>cozo</code> + CAS</td>
+<td><code>fjall</code> · FoundationDB at scale</td>
+</tr>
+<tr>
+<td><code>ToolHost</code></td>
+<td>MCP tool registry, routing, audit</td>
+<td><code>rmcp</code> host</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>Calibrator</code></td>
+<td>Post-hoc calibration, ECE tracking</td>
+<td><code>ort</code>-hosted classifier + conformal</td>
+<td><code>candle</code></td>
+</tr>
+<tr>
+<td><code>Verifier</code></td>
+<td>Citation grounding, NLI entailment, oracle grounding</td>
+<td>in-house over retrieval + KG oracles</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>ArtifactStore</code></td>
+<td>Content-addressed payloads + manifests</td>
+<td>custom CAS, <code>blake3</code>, object store</td>
+<td>local FS for dev</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Dependency rule (restated):</strong> dependencies point inward toward <code>oncora-core</code>; providers are concrete impls of these traits; no cycles. Swapping a backend means swapping an impl, never touching the agent runtime or API.</p>
+<div class="pager">
+<a class="prev" href="00-overview.html"><span class="lbl">Previous</span><span class="ttl">Overview</span></a>
+<a class="next" href="02-memory.html"><span class="lbl">Next</span><span class="ttl">Agent memory</span></a>
+</div>
+</article>
+</main>
+</div>
+<script>
+function syncScrim(){document.querySelector('.scrim').classList.toggle('show',document.body.classList.contains('nav-open'));
+  document.getElementById('sidebar').classList.toggle('open',document.body.classList.contains('nav-open'));}
+new MutationObserver(syncScrim).observe(document.body,{attributes:true,attributeFilter:['class']});
+</script>
+<script src="assets/js/highlight.min.js"></script>
+<script src="assets/js/rust.min.js"></script>
+<script src="assets/js/mermaid.min.js"></script>
+<script>
+  document.querySelectorAll('pre code').forEach(function(el){ try{ hljs.highlightElement(el); }catch(e){} });
+  mermaid.initialize({
+    startOnLoad:true, securityLevel:'loose',
+    theme:'base',
+    themeVariables:{
+      darkMode:true, background:'#0c1726',
+      primaryColor:'#13233c', primaryTextColor:'#e6edf6', primaryBorderColor:'#2dd4bf',
+      lineColor:'#7dd3fc', secondaryColor:'#16243d', tertiaryColor:'#0e1b2e',
+      fontFamily:"'Segoe UI',system-ui,sans-serif", fontSize:'15px',
+      clusterBkg:'#0e1b2e', clusterBorder:'#2b405f',
+      actorBkg:'#13233c', actorBorder:'#2dd4bf', actorTextColor:'#e6edf6',
+      signalColor:'#9fb3c8', signalTextColor:'#cbd9ea', labelBoxBkgColor:'#13233c', labelBoxBorderColor:'#2b405f'
+    }
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Repo layout · Oncora</title>
+<meta name="description" content="Oncora — Repo layout"/>
+<link rel="icon" href="assets/svg/oncora-mark.svg"/>
+<link rel="stylesheet" href="assets/css/hljs-github-dark.css"/>
+<link rel="stylesheet" href="assets/css/style.css"/>
+</head>
+<body>
+<button class="menu-btn" aria-label="Menu" onclick="document.body.classList.toggle('nav-open')">☰</button>
+<div class="scrim" onclick="document.body.classList.remove('nav-open')"></div>
+<div class="layout">
+<aside class="sidebar" id="sidebar">
+  <a class="brand" href="index.html">
+    <img src="assets/svg/oncora-mark.svg" alt="Oncora"/>
+    <span>
+      <span class="name">Onc<span>ora</span></span>
+      <span class="sub">Oncology Reasoning Agents</span>
+    </span>
+  </a>
+  <nav class="nav">
+<div class="group">Start</div>
+<a class="nav-link" href="index.html"><span>Home</span></a>
+<a class="nav-link" href="00-overview.html"><span class="num">00</span><span>Overview</span></a>
+<div class="group">Architecture</div>
+<a class="nav-link" href="01-architecture.html"><span class="num">01</span><span>Architecture</span></a>
+<a class="nav-link" href="02-memory.html"><span class="num">02</span><span>Agent memory</span></a>
+<a class="nav-link" href="03-uncertainty-reliability.html"><span class="num">03</span><span>Uncertainty</span></a>
+<a class="nav-link" href="04-knowledge-and-data.html"><span class="num">04</span><span>Knowledge & data</span></a>
+<div class="group">Engineering</div>
+<a class="nav-link" href="05-tech-decisions.html"><span class="num">05</span><span>Tech decisions</span></a>
+<a class="nav-link" href="06-eval-benchmarking.html"><span class="num">06</span><span>Eval & benchmarks</span></a>
+<a class="nav-link active" href="07-repo-layout.html"><span class="num">07</span><span>Repo layout</span></a>
+<a class="nav-link" href="08-roadmap.html"><span class="num">08</span><span>Roadmap & ops</span></a>
+  </nav>
+  <div class="foot">
+    Rust-native · on-prem · MCP<br/>
+    <a href="https://github.com/NahButch/oncora">github.com/NahButch/oncora</a><br/>
+    <span style="color:#475569">Built 2026-06-03</span>
+  </div>
+</aside>
+<main class="main">
+<div class="page-banner"><img src="assets/svg/banner-repo.svg" alt="Repo layout illustration"/></div>
+<article class="content">
+<h1 id="oncora-repository-layout-cargo-workspace">Oncora — Repository Layout &amp; Cargo Workspace<a class="headerlink" href="#oncora-repository-layout-cargo-workspace" title="Permanent link">#</a></h1>
+<p>This document is the authoritative map of the Oncora source tree: the Cargo workspace, the crate-by-crate responsibilities, the swappable trait boundaries, the acyclic dependency graph, and the engineering best practices that make the build reproducible and the codebase auditable. It expands the <em>Cargo workspace</em> section of the internal design canon and is consistent with it: same crate names, same dependency direction, same trait set.</p>
+<p>For the wider picture see <a href="00-overview.html">00-overview.md</a> (problem and pillars), <a href="01-architecture.html">01-architecture.md</a> (runtime topology), and <a href="05-tech-decisions.html">05-tech-decisions.md</a> (the locked technology choices each crate consumes).</p>
+<h2 id="workspace-philosophy">Workspace philosophy<a class="headerlink" href="#workspace-philosophy" title="Permanent link">#</a></h2>
+<p>Oncora is a single Cargo <strong>workspace</strong> named <code>oncora</code>, with every crate namespaced <code>oncora-*</code>. The workspace is organized as a clean-architecture dependency graph, and the rules are non-negotiable:</p>
+<ul>
+<li><strong>Dependencies point inward toward <code>oncora-core</code>.</strong> <code>oncora-core</code> holds the typed vocabulary of the platform — <code>Confidence</code>, <code>Provenance</code>, <code>Evidence</code>, <code>Verdict</code>, ids, errors, and the provider trait definitions. It depends on nothing internal. Everything else depends, directly or transitively, on it.</li>
+<li><strong>No cycles.</strong> The internal dependency graph is a strict DAG. A crate may only depend on crates strictly closer to the core. This is enforced socially in review and mechanically by the fact that Cargo rejects cyclic crate dependencies at build time.</li>
+<li><strong>Providers are concrete impls of core traits.</strong> The swappable boundaries — model backend, embedding backend, vector store, graph store, memory store, tool host, calibrator, verifier, artifact store — are <strong>traits</strong> declared near the core. Concrete implementations (an <code>async-openai</code> model client, a <code>qdrant</code> vector store, an <code>oxigraph</code> graph store) are isolated impls that depend inward on the trait. Higher layers program against the trait, never the concrete backend. This is how the canon's "non-Rust deps isolated behind Rust traits and justified" rule is realized in code: every C/C++/JVM-adjacent dependency (<code>ort</code>, <code>duckdb</code>, <code>foundationdb</code>) lives behind a trait and inside one crate.</li>
+<li><strong>Libs use <code>thiserror</code>; bins use <code>anyhow</code>.</strong> Library crates expose typed, matchable error enums via <code>thiserror</code> so callers can branch on failure modes (and so <code>Verdict::Abstain</code>/<code>Escalate</code> can be driven by error class). Binary crates (<code>oncora-api</code>, <code>oncora-cli</code>, <code>xtask</code>) use <code>anyhow</code> for ergonomic top-level error handling with context. No library ever forces <code>anyhow</code> on its callers.</li>
+</ul>
+<p>The payoff: any backend can be swapped — a different vector DB, a different local-inference engine, a cloud model behind the egress proxy — by writing one new impl crate/module and rebinding a trait object at composition time, with zero changes to <code>oncora-agents</code> or above.</p>
+<h2 id="crate-by-crate">Crate-by-crate<a class="headerlink" href="#crate-by-crate" title="Permanent link">#</a></h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Crate</th>
+<th>Responsibility</th>
+<th>Depends on (internal)</th>
+<th>Key public traits / types</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>oncora-core</code></td>
+<td>Foundational typed vocabulary and the provider trait definitions. No internal deps.</td>
+<td>—</td>
+<td><code>Confidence</code>, <code>Provenance</code>, <code>Evidence</code>, <code>Verdict</code>, <code>SourceRef</code>, <code>ToolCallId</code>, <code>ModelPin</code>, <code>SnapshotId</code>, <code>UncertaintySources</code>; traits <code>ModelProvider</code>, <code>EmbeddingProvider</code>, <code>VectorStore</code>, <code>GraphStore</code>, <code>MemoryStore</code>, <code>ToolHost</code>, <code>Calibrator</code>, <code>Verifier</code>, <code>ArtifactStore</code></td>
+</tr>
+<tr>
+<td><code>oncora-telemetry</code></td>
+<td>Structured tracing + OpenTelemetry wiring; span helpers correlating agent runs and tool calls.</td>
+<td>—</td>
+<td><code>init_tracing</code>, <code>RunSpan</code>, <code>ToolSpan</code>; <code>tracing</code>/<code>tracing-opentelemetry</code> setup</td>
+</tr>
+<tr>
+<td><code>oncora-artifacts</code></td>
+<td>Content-addressed store: BLAKE3 hashing, <code>serde</code>/CBOR manifests, object-store/FS backend.</td>
+<td><code>oncora-core</code></td>
+<td><code>Cas</code>, <code>Manifest</code>, <code>ContentHash</code>; impl of <code>ArtifactStore</code></td>
+</tr>
+<tr>
+<td><code>oncora-mcp-host</code></td>
+<td><code>rmcp</code> host/client, tool registry, deterministic + audited tool dispatch.</td>
+<td><code>oncora-core</code>, <code>oncora-telemetry</code></td>
+<td><code>McpHost</code>, <code>ToolRegistry</code>, <code>ToolCallRecord</code>; impl of <code>ToolHost</code></td>
+</tr>
+<tr>
+<td><code>oncora-kg</code></td>
+<td>Dual knowledge graph: <code>oxigraph</code> ontology layer + <code>cozo</code> evidence graph; schema, SPARQL/Datalog.</td>
+<td><code>oncora-core</code></td>
+<td><code>OntologyStore</code>, <code>EvidenceGraph</code>, schema entities/edges; impls of <code>GraphStore</code></td>
+</tr>
+<tr>
+<td><code>oncora-retrieval</code></td>
+<td>Vector search over <code>qdrant</code>/<code>lancedb</code>, embeddings via <code>fastembed</code>, hybrid vector+graph+recency fusion.</td>
+<td><code>oncora-core</code>, <code>oncora-kg</code></td>
+<td><code>HybridRetriever</code>, <code>FusionScore</code>; impls of <code>VectorStore</code>, <code>EmbeddingProvider</code></td>
+</tr>
+<tr>
+<td><code>oncora-ingest</code></td>
+<td><code>swiftide</code> pipelines for literature/omics/imaging/KG; snapshotting into CAS.</td>
+<td><code>oncora-core</code>, <code>oncora-kg</code>, <code>oncora-retrieval</code>, <code>oncora-artifacts</code></td>
+<td><code>IngestPipeline</code>, <code>SnapshotBuilder</code>, source loaders</td>
+</tr>
+<tr>
+<td><code>oncora-memory</code></td>
+<td>Five memory types and the write/read paths; cross-session persistence.</td>
+<td><code>oncora-core</code>, <code>oncora-kg</code>, <code>oncora-retrieval</code>, <code>oncora-artifacts</code></td>
+<td><code>WorkingMemory</code>, <code>EpisodicLog</code>, <code>SemanticMemory</code>, <code>ProceduralMemory</code>; impls of <code>MemoryStore</code></td>
+</tr>
+<tr>
+<td><code>oncora-uncertainty</code></td>
+<td>Calibration, conformal prediction, verifiers, oracle grounding, abstention policy.</td>
+<td><code>oncora-core</code>, <code>oncora-mcp-host</code></td>
+<td><code>Ece</code>, <code>ConformalPredictor</code>, <code>AbstentionPolicy</code>; impls of <code>Calibrator</code>, <code>Verifier</code></td>
+</tr>
+<tr>
+<td><code>oncora-agents</code></td>
+<td><code>rig</code>-backed planner / domain specialists / verifier / scorer / responder; the agent loop.</td>
+<td><code>oncora-core</code>, <code>oncora-memory</code>, <code>oncora-retrieval</code>, <code>oncora-kg</code>, <code>oncora-mcp-host</code>, <code>oncora-uncertainty</code></td>
+<td><code>Planner</code>, <code>SpecialistAgent</code>, <code>AgentLoop</code>, <code>RunContext</code></td>
+</tr>
+<tr>
+<td><code>oncora-eval</code></td>
+<td>Benchmark harness, golden sets, accuracy/calibration/abstention/latency metrics, CI gating.</td>
+<td><code>oncora-core</code>, <code>oncora-agents</code> + all</td>
+<td><code>Benchmark</code>, <code>GoldenSet</code>, <code>MetricSuite</code>, <code>CiGate</code></td>
+</tr>
+<tr>
+<td><code>oncora-api</code></td>
+<td><code>axum</code> + <code>tonic</code> services, auth, RBAC, request orchestration.</td>
+<td><code>oncora-agents</code>, <code>oncora-memory</code>, <code>oncora-retrieval</code>, <code>oncora-kg</code></td>
+<td><code>ApiServer</code>, route handlers, <code>AuthLayer</code></td>
+</tr>
+<tr>
+<td><code>oncora-cli</code></td>
+<td>Operator + developer CLI; deterministic run replay.</td>
+<td><code>oncora-api</code> / <code>oncora-agents</code></td>
+<td><code>Cli</code>, subcommands <code>run</code>, <code>replay</code>, <code>ingest</code>, <code>eval</code></td>
+</tr>
+</tbody>
+</table></div>
+<p><code>oncora-eval</code> is the one crate that legitimately depends on "all" — it must exercise the full stack — so it sits high in the graph and is never depended upon by anything except the binaries that invoke it.</p>
+<h2 id="trait-boundaries">Trait boundaries<a class="headerlink" href="#trait-boundaries" title="Permanent link">#</a></h2>
+<p>The swappable seams live in (or near) <code>oncora-core</code>. Each is a small, object-safe trait with one clear contract. Concrete backends implement them in the crate that owns the relevant technology.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Trait</th>
+<th>One-line contract</th>
+<th>Defined in</th>
+<th>Implemented in</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ModelProvider</code></td>
+<td>Given a prompt/messages, return a completion or stream, with a <code>ModelPin</code> for reproducibility.</td>
+<td><code>oncora-core</code></td>
+<td><code>oncora-agents</code> (clients: <code>async-openai</code>, Anthropic, <code>mistral.rs</code>/<code>candle</code>)</td>
+</tr>
+<tr>
+<td><code>EmbeddingProvider</code></td>
+<td>Embed text/multimodal items into fixed-width vectors, batched and deterministic.</td>
+<td><code>oncora-core</code></td>
+<td><code>oncora-retrieval</code> (<code>fastembed</code>/<code>ort</code>, <code>candle</code>)</td>
+</tr>
+<tr>
+<td><code>VectorStore</code></td>
+<td>Upsert and ANN-search vectors with payload filtering, returning scored hits.</td>
+<td><code>oncora-core</code></td>
+<td><code>oncora-retrieval</code> (<code>qdrant</code>, <code>lancedb</code>)</td>
+</tr>
+<tr>
+<td><code>GraphStore</code></td>
+<td>Assert/query graph entities and edges; ontology queries and time-traveled evidence queries.</td>
+<td><code>oncora-core</code></td>
+<td><code>oncora-kg</code> (<code>oxigraph</code> SPARQL, <code>cozo</code> Datalog)</td>
+</tr>
+<tr>
+<td><code>MemoryStore</code></td>
+<td>Read/write versioned, attributed, content-addressed memory entries by <code>(scientist, project, workflow)</code>.</td>
+<td><code>oncora-core</code></td>
+<td><code>oncora-memory</code> (<code>redb</code> + CAS, Postgres, <code>cozo</code>)</td>
+</tr>
+<tr>
+<td><code>ToolHost</code></td>
+<td>Register and invoke MCP tools deterministically; record every call to the audit trail.</td>
+<td><code>oncora-core</code></td>
+<td><code>oncora-mcp-host</code> (<code>rmcp</code>)</td>
+</tr>
+<tr>
+<td><code>Calibrator</code></td>
+<td>Map raw model scores to a calibrated <code>Confidence</code>, tagging the <code>CalibrationMethod</code>.</td>
+<td><code>oncora-core</code></td>
+<td><code>oncora-uncertainty</code> (Platt/isotonic/conformal)</td>
+</tr>
+<tr>
+<td><code>Verifier</code></td>
+<td>Check a claim against evidence/oracles; return support, contradiction, and a <code>Verdict</code> signal.</td>
+<td><code>oncora-core</code></td>
+<td><code>oncora-uncertainty</code> (NLI entailment, oracle grounding)</td>
+</tr>
+<tr>
+<td><code>ArtifactStore</code></td>
+<td>Put/get content-addressed blobs and manifests by BLAKE3 hash; immutable, deduplicated.</td>
+<td><code>oncora-core</code></td>
+<td><code>oncora-artifacts</code> (object store / FS CAS)</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="trait-sketch">Trait sketch<a class="headerlink" href="#trait-sketch" title="Permanent link">#</a></h3>
+<pre class="highlight"><code class="language-rust">//! Provider seams declared in `oncora-core`. Concrete backends live in the
+//! crate that owns the underlying technology; higher layers depend only on
+//! these traits. Errors are typed (`thiserror`) so callers can branch.
+
+use async_trait::async_trait;
+
+/// Pluggable text/chat model backend. Carries a `ModelPin` so any completion
+/// is reproducible against a fixed model + decoding config.
+#[async_trait]
+pub trait ModelProvider: Send + Sync {
+    async fn complete(&amp;self, req: CompletionRequest) -&gt; Result&lt;Completion, ModelError&gt;;
+    fn pin(&amp;self) -&gt; ModelPin;
+}
+
+/// Approximate-nearest-neighbour vector store with payload filtering.
+#[async_trait]
+pub trait VectorStore: Send + Sync {
+    async fn upsert(&amp;self, points: Vec&lt;VectorPoint&gt;) -&gt; Result&lt;(), StoreError&gt;;
+    async fn search(&amp;self, query: VectorQuery) -&gt; Result&lt;Vec&lt;ScoredHit&gt;, StoreError&gt;;
+}
+
+/// Post-hoc calibration of raw scores into a typed, tagged `Confidence`.
+pub trait Calibrator: Send + Sync {
+    fn calibrate(&amp;self, raw: f64, ctx: &amp;CalibrationContext) -&gt; Confidence;
+    fn method(&amp;self) -&gt; CalibrationMethod;
+}
+
+/// Content-addressed artifact store: immutable, deduplicated, BLAKE3-keyed.
+#[async_trait]
+pub trait ArtifactStore: Send + Sync {
+    async fn put(&amp;self, bytes: &amp;[u8]) -&gt; Result&lt;ContentHash, CasError&gt;;
+    async fn get(&amp;self, hash: &amp;ContentHash) -&gt; Result&lt;Vec&lt;u8&gt;, CasError&gt;;
+}</code></pre>
+<h2 id="crate-dependency-graph">Crate dependency graph<a class="headerlink" href="#crate-dependency-graph" title="Permanent link">#</a></h2>
+<p>Arrows mean <em>depends on</em>. The graph is acyclic and points inward toward <code>oncora-core</code>. <code>oncora-eval</code> and the binaries sit at the top; the foundational crates sit at the bottom.</p>
+<pre class="mermaid">flowchart TD
+  cli[&quot;oncora-cli&quot;]
+  api[&quot;oncora-api&quot;]
+  eval[&quot;oncora-eval&quot;]
+  agents[&quot;oncora-agents&quot;]
+  uncertainty[&quot;oncora-uncertainty&quot;]
+  memory[&quot;oncora-memory&quot;]
+  ingest[&quot;oncora-ingest&quot;]
+  retrieval[&quot;oncora-retrieval&quot;]
+  kg[&quot;oncora-kg&quot;]
+  mcp[&quot;oncora-mcp-host&quot;]
+  artifacts[&quot;oncora-artifacts&quot;]
+  telemetry[&quot;oncora-telemetry&quot;]
+  core[&quot;oncora-core&quot;]
+
+  cli --&gt; api
+  cli --&gt; agents
+  api --&gt; agents
+  api --&gt; memory
+  api --&gt; retrieval
+  api --&gt; kg
+
+  eval --&gt; agents
+  eval --&gt; uncertainty
+  eval --&gt; memory
+  eval --&gt; ingest
+
+  agents --&gt; memory
+  agents --&gt; retrieval
+  agents --&gt; kg
+  agents --&gt; mcp
+  agents --&gt; uncertainty
+
+  uncertainty --&gt; mcp
+  memory --&gt; kg
+  memory --&gt; retrieval
+  memory --&gt; artifacts
+  ingest --&gt; kg
+  ingest --&gt; retrieval
+  ingest --&gt; artifacts
+  retrieval --&gt; kg
+
+  mcp --&gt; telemetry
+  artifacts --&gt; core
+  retrieval --&gt; core
+  kg --&gt; core
+  memory --&gt; core
+  ingest --&gt; core
+  uncertainty --&gt; core
+  agents --&gt; core
+  eval --&gt; core
+  mcp --&gt; core
+  telemetry --&gt; core</pre>
+<h2 id="repository-tree">Repository tree<a class="headerlink" href="#repository-tree" title="Permanent link">#</a></h2>
+<p>The workspace root carries the build, lint, and CI configuration; every crate follows the same <code>src/</code>, <code>tests/</code>, <code>benches/</code> shape. An <code>xtask/</code> crate hosts repository automation (snapshot pinning, deny audits, codegen) so contributors run <code>cargo xtask &lt;task&gt;</code> rather than ad-hoc scripts.</p>
+<pre class="highlight"><code>oncora/
+├── Cargo.toml                  # [workspace] root: members + workspace.dependencies
+├── Cargo.lock                  # committed: locked, reproducible deps
+├── rust-toolchain.toml         # pinned toolchain + components (rustfmt, clippy)
+├── deny.toml                   # cargo-deny: licenses, bans, advisories, sources
+├── rustfmt.toml                # formatting config
+├── clippy.toml                 # lint config
+├── .gitignore
+├── README.md
+├── docs/
+│   ├── 00-overview.md
+│   ├── 01-architecture.md
+│   ├── 02-memory.md
+│   ├── 03-uncertainty-reliability.md
+│   ├── 04-knowledge-and-data.md
+│   ├── 05-tech-decisions.md
+│   ├── 06-eval-benchmarking.md
+│   ├── 07-repo-layout.md
+│   ├── 08-roadmap.md
+│   └── adr/                    # Architecture Decision Records, numbered
+│       ├── 0001-rust-native.md
+│       └── 0002-mcp-for-all-tools.md
+├── .github/
+│   └── workflows/
+│       ├── ci.yml              # fmt, clippy -D warnings, test, doc, deny
+│       ├── bench.yml           # criterion regression tracking
+│       └── eval.yml            # oncora-eval golden-set CI gate
+├── crates/
+│   ├── oncora-core/
+│   │   ├── Cargo.toml
+│   │   ├── src/
+│   │   │   ├── lib.rs
+│   │   │   ├── types.rs        # Confidence, Provenance, Evidence, Verdict
+│   │   │   ├── ids.rs          # ToolCallId, ModelPin, SnapshotId, SourceRef
+│   │   │   ├── error.rs        # thiserror enums
+│   │   │   └── traits.rs       # ModelProvider, VectorStore, ... seams
+│   │   ├── tests/
+│   │   └── benches/
+│   ├── oncora-telemetry/{src,tests}
+│   ├── oncora-artifacts/{src,tests,benches}
+│   ├── oncora-mcp-host/{src,tests}
+│   ├── oncora-kg/{src,tests,benches}
+│   ├── oncora-retrieval/{src,tests,benches}
+│   ├── oncora-ingest/{src,tests}
+│   ├── oncora-memory/{src,tests,benches}
+│   ├── oncora-uncertainty/{src,tests,benches}
+│   ├── oncora-agents/{src,tests}
+│   ├── oncora-eval/{src,tests}
+│   ├── oncora-api/{src,tests}
+│   └── oncora-cli/{src,tests}
+├── xtask/                      # cargo xtask automation
+│   ├── Cargo.toml
+│   └── src/main.rs
+└── fuzz/                       # cargo-fuzz targets (VCF, DICOM, tool args)
+    ├── Cargo.toml
+    └── fuzz_targets/</code></pre>
+<h2 id="workspace-cargotoml">Workspace <code>Cargo.toml</code><a class="headerlink" href="#workspace-cargotoml" title="Permanent link">#</a></h2>
+<p>Versions below are <strong>illustrative and must be verified/pinned</strong> against the current ecosystem before use; <code>rig</code>, <code>swiftide</code>, <code>mistral.rs</code>, and <code>lancedb</code> move fast and require explicit version verification (see <a href="05-tech-decisions.html">05-tech-decisions.md</a> maturity notes). The point of <code>[workspace.dependencies]</code> is that every crate inherits one pinned version of each shared dependency.</p>
+<pre class="highlight"><code class="language-toml">[workspace]
+resolver = "2"
+members = [
+  "crates/oncora-core",
+  "crates/oncora-telemetry",
+  "crates/oncora-artifacts",
+  "crates/oncora-mcp-host",
+  "crates/oncora-kg",
+  "crates/oncora-retrieval",
+  "crates/oncora-ingest",
+  "crates/oncora-memory",
+  "crates/oncora-uncertainty",
+  "crates/oncora-agents",
+  "crates/oncora-eval",
+  "crates/oncora-api",
+  "crates/oncora-cli",
+  "xtask",
+]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.82"          # mirror rust-toolchain.toml; verify
+license = "Proprietary"
+repository = "https://git.internal/oncora"
+
+[workspace.dependencies]
+# --- internal crates (path deps, version-synced) ---
+oncora-core        = { path = "crates/oncora-core" }
+oncora-telemetry   = { path = "crates/oncora-telemetry" }
+oncora-artifacts   = { path = "crates/oncora-artifacts" }
+oncora-mcp-host    = { path = "crates/oncora-mcp-host" }
+oncora-kg          = { path = "crates/oncora-kg" }
+oncora-retrieval   = { path = "crates/oncora-retrieval" }
+oncora-ingest      = { path = "crates/oncora-ingest" }
+oncora-memory      = { path = "crates/oncora-memory" }
+oncora-uncertainty = { path = "crates/oncora-uncertainty" }
+oncora-agents      = { path = "crates/oncora-agents" }
+
+# --- runtime / web / rpc (versions illustrative) ---
+tokio       = { version = "1", features = ["full"] }
+axum        = "0.7"
+tonic       = "0.12"
+tower       = "0.5"
+tower-http  = "0.6"
+
+# --- agents / llm / ingest (VERIFY — fast-moving) ---
+rig-core    = "0.4"
+swiftide    = "0.16"
+async-openai = "0.27"
+
+# --- stores / data ---
+qdrant-client = "1"
+lancedb       = "0.10"
+oxigraph      = "0.4"
+cozo          = "0.7"
+polars        = "0.43"
+duckdb        = "1"
+redb          = "2"
+sqlx          = { version = "0.8", features = ["postgres", "runtime-tokio"] }
+
+# --- domain io ---
+noodles  = "0.83"
+dicom    = "0.7"
+rmcp     = "0.1"
+
+# --- serialization / hashing / errors ---
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+ciborium   = "0.2"
+blake3     = "1"
+thiserror  = "2"
+anyhow     = "1"
+
+# --- observability / config ---
+tracing               = "0.1"
+tracing-opentelemetry = "0.28"
+opentelemetry         = "0.27"
+figment               = { version = "0.10", features = ["toml", "env"] }
+
+# --- testing / quality ---
+proptest  = "1"
+insta     = "1"
+criterion = "0.5"</code></pre>
+<p>Each member crate then writes, e.g.:</p>
+<pre class="highlight"><code class="language-toml">[dependencies]
+oncora-core = { workspace = true }
+tokio       = { workspace = true }
+thiserror   = { workspace = true }   # libraries
+# anyhow = { workspace = true }      # binaries only</code></pre>
+<h2 id="engineering-best-practices">Engineering best practices<a class="headerlink" href="#engineering-best-practices" title="Permanent link">#</a></h2>
+<h3 id="documentation-standards">Documentation standards<a class="headerlink" href="#documentation-standards" title="Permanent link">#</a></h3>
+<ul>
+<li><strong>Rustdoc on every public item.</strong> <code>#![deny(missing_docs)]</code> on library crates. Every public trait, type, and function carries a doc comment; module-level <code>//!</code> docs explain the crate's role and its place in the dependency graph.</li>
+<li><strong>Doc-tests.</strong> Public API examples are runnable doc-tests, executed by <code>cargo test --doc</code>. They double as compile-checked usage docs — critical for the provider trait seams.</li>
+<li><strong>The <code>docs/</code> set.</strong> The numbered design docs (<code>00</code>–<code>08</code>) plus the canon are the prose architecture; this file (<code>07</code>) is their structural index. Docs cross-reference with relative links and must stay consistent with the canon.</li>
+<li><strong>ADRs.</strong> Significant decisions land in <code>docs/adr/NNNN-title.md</code> (context → decision → consequences). The locked technology table in <a href="05-tech-decisions.html">05-tech-decisions.md</a> is the rolled-up summary; ADRs hold the per-decision reasoning and any later supersessions.</li>
+</ul>
+<h3 id="quality-gates">Quality gates<a class="headerlink" href="#quality-gates" title="Permanent link">#</a></h3>
+<p>Enforced in <code>.github/workflows/ci.yml</code>; a PR cannot merge unless all pass:</p>
+<ul>
+<li><strong>Formatting</strong> — <code>cargo fmt --all --check</code>.</li>
+<li><strong>Lints</strong> — <code>cargo clippy --all-targets --all-features -- -D warnings</code>. Warnings are errors.</li>
+<li><strong>Dependency policy</strong> — <code>cargo deny check</code> against <code>deny.toml</code> (licenses, security advisories, banned/duplicate crates, allowed sources). This is where non-Rust/native deps are gate-kept.</li>
+<li><strong>Tests + coverage</strong> — <code>cargo test --workspace</code>, with coverage (<code>cargo llvm-cov</code>) tracked and a floor enforced on core/uncertainty/memory crates.</li>
+<li><strong>Property tests + fuzzing</strong> — <code>proptest</code> invariants on memory, uncertainty, and parsers; <code>cargo-fuzz</code> targets for the risky parsers (VCF, DICOM, JSON tool args) run in scheduled CI.</li>
+<li><strong>Benchmarks</strong> — <code>criterion</code> microbenchmarks with regression tracking in <code>bench.yml</code>; latency/throughput regressions are flagged.</li>
+<li><strong>Eval gate</strong> — <code>oncora-eval</code> runs golden sets and gates CI on accuracy / calibration (ECE) / abstention / latency, so reasoning regressions cannot merge (see <a href="06-eval-benchmarking.html">06-eval-benchmarking.md</a>).</li>
+</ul>
+<h3 id="reproducibility-criteria">Reproducibility criteria<a class="headerlink" href="#reproducibility-criteria" title="Permanent link">#</a></h3>
+<ul>
+<li><strong>Pinned toolchain</strong> — <code>rust-toolchain.toml</code> pins the channel and components; CI uses exactly that toolchain.</li>
+<li><strong>Locked dependencies</strong> — <code>Cargo.lock</code> is committed; <code>[workspace.dependencies]</code> gives a single resolved version per crate; <code>cargo deny</code> blocks duplicate/unexpected versions.</li>
+<li><strong>Content-addressed artifacts</strong> — models, data snapshots, manifests, and run outputs are BLAKE3-addressed via <code>oncora-artifacts</code>, so a run pins its <code>ModelPin</code> + <code>SnapshotId</code> and can be replayed deterministically (<code>oncora-cli replay</code>). Snapshot tests (<code>insta</code>) lock prompts, traces, and manifests against drift.</li>
+</ul>
+<h2 id="pillar-requirement-crate-mapping">Pillar / requirement → crate mapping<a class="headerlink" href="#pillar-requirement-crate-mapping" title="Permanent link">#</a></h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Pillar / requirement</th>
+<th>Delivering crate(s)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Multimodal reasoning</td>
+<td><code>oncora-retrieval</code>, <code>oncora-kg</code>, <code>oncora-ingest</code>, <code>oncora-agents</code></td>
+</tr>
+<tr>
+<td>Agent memory architecture</td>
+<td><code>oncora-memory</code>, <code>oncora-kg</code>, <code>oncora-artifacts</code></td>
+</tr>
+<tr>
+<td>Robustness &amp; uncertainty</td>
+<td><code>oncora-uncertainty</code>, <code>oncora-core</code> types, <code>oncora-mcp-host</code> oracles</td>
+</tr>
+<tr>
+<td>Reliability &amp; benchmarking</td>
+<td><code>oncora-eval</code>, <code>oncora-telemetry</code></td>
+</tr>
+<tr>
+<td>MCP for all domain tools</td>
+<td><code>oncora-mcp-host</code></td>
+</tr>
+<tr>
+<td>Provenance on every claim</td>
+<td><code>oncora-core</code> <code>Provenance</code>, <code>oncora-artifacts</code>, <code>oncora-memory</code> ledger</td>
+</tr>
+<tr>
+<td>Reproducibility / replay</td>
+<td><code>oncora-artifacts</code>, <code>oncora-cli</code> replay, pinned toolchain + <code>Cargo.lock</code></td>
+</tr>
+<tr>
+<td>Typed calibrated confidence</td>
+<td><code>oncora-core</code> <code>Confidence</code>/<code>Verdict</code>, <code>oncora-uncertainty</code></td>
+</tr>
+<tr>
+<td>On-prem / privacy / RBAC</td>
+<td><code>oncora-api</code> auth+RBAC, on-prem provider impls behind core traits</td>
+</tr>
+<tr>
+<td>Observability</td>
+<td><code>oncora-telemetry</code></td>
+</tr>
+<tr>
+<td>Provider swappability</td>
+<td><code>oncora-core</code> traits + per-backend impls in owning crates</td>
+</tr>
+</tbody>
+</table></div>
+<div class="pager">
+<a class="prev" href="06-eval-benchmarking.html"><span class="lbl">Previous</span><span class="ttl">Eval & benchmarks</span></a>
+<a class="next" href="08-roadmap.html"><span class="lbl">Next</span><span class="ttl">Roadmap & ops</span></a>
+</div>
+</article>
+</main>
+</div>
+<script>
+function syncScrim(){document.querySelector('.scrim').classList.toggle('show',document.body.classList.contains('nav-open'));
+  document.getElementById('sidebar').classList.toggle('open',document.body.classList.contains('nav-open'));}
+new MutationObserver(syncScrim).observe(document.body,{attributes:true,attributeFilter:['class']});
+</script>
+<script src="assets/js/highlight.min.js"></script>
+<script src="assets/js/rust.min.js"></script>
+<script src="assets/js/mermaid.min.js"></script>
+<script>
+  document.querySelectorAll('pre code').forEach(function(el){ try{ hljs.highlightElement(el); }catch(e){} });
+  mermaid.initialize({
+    startOnLoad:true, securityLevel:'loose',
+    theme:'base',
+    themeVariables:{
+      darkMode:true, background:'#0c1726',
+      primaryColor:'#13233c', primaryTextColor:'#e6edf6', primaryBorderColor:'#2dd4bf',
+      lineColor:'#7dd3fc', secondaryColor:'#16243d', tertiaryColor:'#0e1b2e',
+      fontFamily:"'Segoe UI',system-ui,sans-serif", fontSize:'15px',
+      clusterBkg:'#0e1b2e', clusterBorder:'#2b405f',
+      actorBkg:'#13233c', actorBorder:'#2dd4bf', actorTextColor:'#e6edf6',
+      signalColor:'#9fb3c8', signalTextColor:'#cbd9ea', labelBoxBkgColor:'#13233c', labelBoxBorderColor:'#2b405f'
+    }
+  });
+</script>
+</body>
+</html>

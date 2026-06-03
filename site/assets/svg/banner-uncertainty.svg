@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 200" role="img" aria-label="Uncertainty loop: reason, self-consistency, oracle and verifier check, calibrate, then accept abstain or escalate" font-family="'Segoe UI',system-ui,sans-serif">
+  <defs>
+    <linearGradient id="ub" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#0f1d33"/><stop offset="1" stop-color="#102718"/></linearGradient>
+    <marker id="uar" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#34d399"/></marker>
+  </defs>
+  <rect width="1200" height="200" rx="14" fill="url(#ub)"/>
+  <g font-size="13" text-anchor="middle" font-weight="600">
+    <g><rect x="36" y="78" width="128" height="46" rx="12" fill="#13233c" stroke="#60a5fa"/><text x="100" y="106" fill="#cfe0ff">Reason</text></g>
+    <g><rect x="196" y="78" width="150" height="46" rx="12" fill="#13233c" stroke="#a78bfa"/><text x="271" y="100" fill="#e0d8ff">Self-consist</text><text x="271" y="116" fill="#8fa6bd" font-size="11">+ ensemble</text></g>
+    <g><rect x="378" y="78" width="160" height="46" rx="12" fill="#13233c" stroke="#fbbf24"/><text x="458" y="100" fill="#ffe9bf">Oracle +</text><text x="458" y="116" fill="#8fa6bd" font-size="11">verifier check</text></g>
+    <g><rect x="570" y="78" width="150" height="46" rx="12" fill="#13233c" stroke="#2dd4bf"/><text x="645" y="100" fill="#cfe9e4">Calibrate</text><text x="645" y="116" fill="#8fa6bd" font-size="11">ECE · conformal</text></g>
+  </g>
+  <g stroke="#34d399" stroke-width="2.2" fill="none" opacity="0.85">
+    <path d="M164 101 H196" marker-end="url(#uar)"/>
+    <path d="M346 101 H378" marker-end="url(#uar)"/>
+    <path d="M538 101 H570" marker-end="url(#uar)"/>
+    <path d="M720 101 H770" marker-end="url(#uar)"/>
+  </g>
+  <!-- decision -->
+  <g transform="translate(830 101)"><polygon points="0,-34 56,0 0,34 -56,0" fill="#13233c" stroke="#34d399" stroke-width="1.5"/><text x="0" y="5" fill="#a7f3d0" font-size="12.5" text-anchor="middle" font-weight="600">verdict?</text></g>
+  <g font-size="13" text-anchor="middle" font-weight="700">
+    <g><rect x="940" y="36" width="150" height="40" rx="20" fill="#10b981"/><text x="1015" y="61" fill="#06311f">accept</text></g>
+    <g><rect x="940" y="86" width="150" height="40" rx="20" fill="#f59e0b"/><text x="1015" y="111" fill="#5a3d06">abstain</text></g>
+    <g><rect x="940" y="136" width="150" height="40" rx="20" fill="#f43f5e"/><text x="1015" y="161" fill="#4a0f1c">escalate</text></g>
+  </g>
+  <g stroke="#34d399" stroke-width="2.2" fill="none" opacity="0.85">
+    <path d="M886 90 C 915 70, 925 60, 940 56" marker-end="url(#uar)"/>
+    <path d="M886 101 H940" marker-end="url(#uar)"/>
+    <path d="M886 112 C 915 132, 925 145, 940 156" marker-end="url(#uar)"/>
+  </g>
+</svg>
