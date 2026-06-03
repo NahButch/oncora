@@ -1,0 +1,30 @@
+[package]
+name = "oncora-ledger"
+description = "Provenance/audit LedgerStore backends — swappable: in-memory, C SQLite, or pure-Rust SQLite"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# Default keeps the workspace build fast and dependency-light (in-memory only).
+default = []
+# C SQLite (the upstream amalgamation, compiled and linked) via rusqlite.
+sqlite-c = ["dep:rusqlite"]
+# Pure-Rust SQLite via Turso (formerly limbo).
+sqlite-rust = ["dep:turso", "dep:tokio"]
+
+[dependencies]
+oncora-core.workspace = true
+async-trait.workspace = true
+
+# C SQLite backend — `bundled` compiles the amalgamation, so no system lib needed.
+rusqlite = { version = "0.40", features = ["bundled"], optional = true }
+
+# Pure-Rust SQLite backend.
+turso = { version = "0.6", optional = true }
+tokio = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

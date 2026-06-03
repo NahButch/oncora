@@ -21,6 +21,7 @@ pub mod confidence;
 pub mod error;
 pub mod evidence;
 pub mod ids;
+pub mod ledger;
 pub mod memory;
 pub mod traits;
 pub mod uncertainty;
@@ -33,6 +34,7 @@ pub use ids::{
     ContentHash, MemoryId, ModelPin, ProjectId, RunId, ScientistId, SnapshotId, ToolCallId,
     WorkflowId,
 };
+pub use ledger::{LedgerRecord, LedgerStore};
 pub use memory::{MemoryEntry, MemoryKey, MemoryKind, ReadQuery};
 pub use traits::{
     ArtifactStore, Calibrator, EmbeddingProvider, GraphStore, MemoryStore, ModelProvider,
@@ -45,9 +47,9 @@ pub use verdict::{EscalationTarget, Verdict};
 pub mod prelude {
     pub use crate::{
         ArtifactStore, CalibrationMethod, Calibrator, Claim, Confidence, EmbeddingProvider,
-        EscalationTarget, Evidence, GraphStore, MemoryEntry, MemoryKey, MemoryKind, MemoryStore,
-        ModelPin, ModelProvider, OncoraError, Provenance, ReadQuery, Result, RunId, ScoredDoc,
-        SnapshotId, SourceRef, ToolHost, ToolResult, Triple, UncertaintyKind, UncertaintySignal,
-        VectorStore, Verdict, Verifier,
+        EscalationTarget, Evidence, GraphStore, LedgerRecord, LedgerStore, MemoryEntry, MemoryKey,
+        MemoryKind, MemoryStore, ModelPin, ModelProvider, OncoraError, Provenance, ReadQuery,
+        Result, RunId, ScoredDoc, SnapshotId, SourceRef, ToolHost, ToolResult, Triple,
+        UncertaintyKind, UncertaintySignal, VectorStore, Verdict, Verifier,
     };
 }

@@ -27,7 +27,17 @@ cargo test --workspace                 # unit tests across all crates
 cargo xtask ci                         # fmt --check + clippy -D warnings + tests
 ```
 
-The thirteen `oncora-*` crates wire together behind the provider trait boundaries in
+Trait-based swappability in action — the same `LedgerStore` trait, schema, and conformance
+test run against three interchangeable backends, including **C SQLite vs pure-Rust SQLite**:
+
+```bash
+cargo test -p oncora-ledger                                  # in-memory backend
+cargo test -p oncora-ledger --features sqlite-c              # C SQLite (rusqlite, bundled)
+cargo test -p oncora-ledger --features sqlite-rust           # pure-Rust SQLite (turso)
+cargo test -p oncora-ledger --features "sqlite-c sqlite-rust" # all three, side by side
+```
+
+The `oncora-*` crates wire together behind the provider trait boundaries in
 `oncora-core` (`ModelProvider`, `VectorStore`, `GraphStore`, `MemoryStore`, `ToolHost`,
 `Calibrator`, `Verifier`, `ArtifactStore`, `EmbeddingProvider`). The walking skeleton ships
 **in-memory reference backends** so it runs with no model server or external database;

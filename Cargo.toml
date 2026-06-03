@@ -17,6 +17,7 @@ oncora-telemetry = { path = "crates/oncora-telemetry" }
 oncora-artifacts = { path = "crates/oncora-artifacts" }
 oncora-mcp-host = { path = "crates/oncora-mcp-host" }
 oncora-kg = { path = "crates/oncora-kg" }
+oncora-ledger = { path = "crates/oncora-ledger" }
 oncora-retrieval = { path = "crates/oncora-retrieval" }
 oncora-ingest = { path = "crates/oncora-ingest" }
 oncora-memory = { path = "crates/oncora-memory" }

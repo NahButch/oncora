@@ -24,5 +24,7 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Test
         run: cargo test --workspace
+      - name: Test ledger backends (C + Rust SQLite)
+        run: cargo test -p oncora-ledger --features "sqlite-c sqlite-rust"
       - name: Build (release)
         run: cargo build --workspace --release
