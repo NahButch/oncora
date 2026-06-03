@@ -7,6 +7,12 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+# Real Model Context Protocol transport via the official Rust SDK (rmcp):
+# an in-process MCP server exposing Oncora tools + a client ToolHost.
+rmcp = ["dep:rmcp", "dep:tokio"]
+
 [dependencies]
 oncora-core.workspace = true
 oncora-telemetry.workspace = true
@@ -15,5 +21,13 @@ serde_json.workspace = true
 async-trait.workspace = true
 tracing.workspace = true
 
+rmcp = { version = "1.7", features = [
+    "server",
+    "client",
+    "macros",
+    "transport-async-rw",
+], optional = true }
+tokio = { workspace = true, features = ["io-util"], optional = true }
+
 [dev-dependencies]
-tokio.workspace = true
+tokio = { workspace = true, features = ["io-util"] }

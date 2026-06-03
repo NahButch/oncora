@@ -10,14 +10,14 @@
 //! `docs/08-roadmap.md` layer on top of this skeleton.
 
 use axum::{
+    Json, Router,
     extract::State,
     http::StatusCode,
     routing::{get, post},
-    Json, Router,
 };
-use oncora_agents::{run_target_discovery, Answer, Platform};
+use oncora_agents::{Answer, Platform, run_target_discovery};
 use oncora_core::{MemoryKey, ProjectId, ScientistId, WorkflowId};
-use oncora_ingest::{ingest, Document};
+use oncora_ingest::{Document, ingest};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]

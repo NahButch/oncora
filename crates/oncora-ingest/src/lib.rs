@@ -129,12 +129,14 @@ mod tests {
         let vs = InMemoryVectorStore::new();
         let kg = InMemoryGraphStore::new();
         let cas = InMemoryArtifactStore::new();
-        let docs = vec![Document::new(
-            "PMID:1",
-            "EGFR in NSCLC",
-            "EGFR mutations drive NSCLC. Inhibitors show response.",
-        )
-        .about("EGFR")];
+        let docs = vec![
+            Document::new(
+                "PMID:1",
+                "EGFR in NSCLC",
+                "EGFR mutations drive NSCLC. Inhibitors show response.",
+            )
+            .about("EGFR"),
+        ];
         let report = ingest(&docs, &emb, &vs, &kg, &cas).await.unwrap();
         assert_eq!(report.documents, 1);
         assert!(report.chunks >= 1);

@@ -7,7 +7,7 @@
 //! computational baselines and records every number to the artifact store for
 //! reproducibility; this reference harness scores the agent against gold labels.
 
-use oncora_agents::{run_target_discovery, Platform};
+use oncora_agents::{Platform, run_target_discovery};
 use oncora_core::{MemoryKey, ProjectId, Result, ScientistId, Verdict, WorkflowId};
 use oncora_uncertainty::expected_calibration_error;
 use serde::{Deserialize, Serialize};

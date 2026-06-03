@@ -37,6 +37,15 @@ cargo test -p oncora-ledger --features sqlite-rust           # pure-Rust SQLite 
 cargo test -p oncora-ledger --features "sqlite-c sqlite-rust" # all three, side by side
 ```
 
+The `ToolHost` seam is the same story for **real MCP**: `oncora-mcp-host` ships an in-memory
+host by default and, under `--features rmcp`, an `rmcp`-backed MCP **server** (exposing Oncora's
+tools) plus a **client** that routes an external MCP server's tools through the same `ToolHost`
+trait — verified by an in-process loopback test:
+
+```bash
+cargo test -p oncora-mcp-host --features rmcp                # MCP server + client loopback
+```
+
 The `oncora-*` crates wire together behind the provider trait boundaries in
 `oncora-core` (`ModelProvider`, `VectorStore`, `GraphStore`, `MemoryStore`, `ToolHost`,
 `Calibrator`, `Verifier`, `ArtifactStore`, `EmbeddingProvider`). The walking skeleton ships

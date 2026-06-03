@@ -5,9 +5,9 @@
 //! print the cited, confidence-scored answer and its verdict. With no argument
 //! it runs the built-in demo; pass a question to ask your own.
 
-use oncora_agents::{run_target_discovery, Platform};
+use oncora_agents::{Platform, run_target_discovery};
 use oncora_core::{MemoryKey, ProjectId, ScientistId, WorkflowId};
-use oncora_ingest::{ingest, Document};
+use oncora_ingest::{Document, ingest};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

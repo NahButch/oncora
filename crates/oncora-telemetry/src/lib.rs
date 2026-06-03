@@ -5,7 +5,7 @@
 //! `docs/08-roadmap.md`); here we provide a simple env-filtered subscriber so
 //! every crate can emit spans/events consistently.
 
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 /// Initialise global tracing once. Honors `RUST_LOG`; defaults to `info`.
 ///

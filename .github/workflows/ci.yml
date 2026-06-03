@@ -26,5 +26,7 @@ jobs:
         run: cargo test --workspace
       - name: Test ledger backends (C + Rust SQLite)
         run: cargo test -p oncora-ledger --features "sqlite-c sqlite-rust"
+      - name: Test MCP transport (rmcp loopback)
+        run: cargo test -p oncora-mcp-host --features rmcp
       - name: Build (release)
         run: cargo build --workspace --release

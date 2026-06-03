@@ -15,7 +15,12 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use oncora_core::{OncoraError, Result, ToolCallId, ToolHost, ToolResult};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
+
+#[cfg(feature = "rmcp")]
+mod rmcp_bridge;
+#[cfg(feature = "rmcp")]
+pub use rmcp_bridge::{OncoraMcpServer, RmcpToolHost, serve_loopback};
 
 /// A tool that can be invoked by name with JSON arguments.
 #[async_trait]

@@ -7,7 +7,7 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use oncora_core::{ContentHash, LedgerRecord, LedgerStore, OncoraError, Result, RunId};
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 
 use crate::SCHEMA;
 

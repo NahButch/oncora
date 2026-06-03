@@ -237,8 +237,8 @@ members = [
 ]
 
 [workspace.package]
-edition = "2021"
-rust-version = "1.82"          # mirror rust-toolchain.toml; verify
+edition = "2024"
+rust-version = "1.85"          # edition 2024 requires >= 1.85; mirror rust-toolchain.toml
 license = "Proprietary"
 repository = "https://git.internal/oncora"
 

@@ -26,7 +26,7 @@ use oncora_mcp_host::{BsaCalculator, EchoTool, McpHost};
 use oncora_memory::InMemoryMemoryStore;
 use oncora_retrieval::{HashEmbedder, HybridRetriever, InMemoryVectorStore};
 use oncora_uncertainty::{
-    self_consistency, AbstentionPolicy, GroundedVerifier, TemperatureCalibrator,
+    AbstentionPolicy, GroundedVerifier, TemperatureCalibrator, self_consistency,
 };
 use serde::{Deserialize, Serialize};
 
