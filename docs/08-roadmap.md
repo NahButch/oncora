@@ -381,6 +381,7 @@ The roadmap is **risk-gated**: each phase exists to retire a specific class of r
 **Risks & spikes.**
 - **Spike: on-prem model throughput** — measure tokens/sec under realistic concurrency on the target GPUs; size the semaphore caps. This is the production cost/latency ceiling.
 - **Spike: qdrant cluster** sharding/replication under representative corpus size.
+- **Spike (TODO): pure-Rust SQLite migration.** *Strategy:* (1) build and **thoroughly test** the system on the **C** SQLite (via `sqlx`/`rusqlite`) so the relational/`MemoryStore` seam is exercised and stable; (2) **swap in a pure-Rust SQLite** (Turso's rewrite, ex-`limbo`) behind the same seam and **re-run the full test suite** (unit, `proptest`, golden-set replay) against it; (3) **report any incompatibilities or bugs upstream** to the Rust-SQLite project to help them succeed. *Exit:* either the pure-Rust engine passes the suite (advance it from dev-only toward a supported relational backend), or the gaps are documented and filed upstream while C SQLite remains the dev fallback. *Verify first:* current maturity/feature-coverage and project name/status of the Rust rewrite (see [05-tech-decisions.md](05-tech-decisions.md)).
 - **Risk:** stateful-service ops burden. *Mitigation:* defer FoundationDB; keep stores swappable behind traits.
 
 ### Phase 6 — Governance hardening
@@ -440,6 +441,7 @@ gantt
 | On-prem GPU throughput too low | High | 5 | Phase-5 throughput spike; abstention as cost control |
 | Parser fragility on real VCF/DICOM | Medium | 1 | `cargo-fuzz` parser fuzzing on malformed real files |
 | PHI leak via logs or egress | High | 6 | Adversarial redaction testing; deny-by-default egress proxy |
+| Pure-Rust SQLite not yet drop-in | Low | 5 | Ship on C SQLite first, test thoroughly; then swap Rust SQLite behind the same seam, re-test, and report issues upstream |
 | Audit-trail gap under failure | High | 6 | Record-before-return invariant; `proptest` the MCP host |
 | Benchmark validity / overfit | Medium | 4 | Expert-built held-out golden sets; periodic refresh |
 | Abstraction leak across crate boundaries | Medium | 0 | Trait-boundary review gate before each pillar phase |
