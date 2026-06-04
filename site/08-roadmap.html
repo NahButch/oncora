@@ -35,6 +35,7 @@
 <a class="nav-link" href="06-eval-benchmarking.html"><span class="num">06</span><span>Eval & benchmarks</span></a>
 <a class="nav-link" href="07-repo-layout.html"><span class="num">07</span><span>Repo layout</span></a>
 <a class="nav-link active" href="08-roadmap.html"><span class="num">08</span><span>Roadmap & ops</span></a>
+<a class="nav-link" href="09-validation.html"><span class="num">09</span><span>Validation report</span></a>
   </nav>
   <div class="foot">
     Rust-native · on-prem · MCP<br/>
@@ -718,7 +719,7 @@ Related: <a href="00-overview.html">00-overview.md</a> · <a href="01-architectu
 <p><strong>Risks &amp; spikes.</strong>
 - <strong>Spike: on-prem model throughput</strong> — measure tokens/sec under realistic concurrency on the target GPUs; size the semaphore caps. This is the production cost/latency ceiling.
 - <strong>Spike: qdrant cluster</strong> sharding/replication under representative corpus size.
-- <strong>Spike (TODO): pure-Rust SQLite migration.</strong> <em>Strategy:</em> (1) build and <strong>thoroughly test</strong> the system on the <strong>C</strong> SQLite (via <code>sqlx</code>/<code>rusqlite</code>) so the relational/<code>MemoryStore</code> seam is exercised and stable; (2) <strong>swap in a pure-Rust SQLite</strong> (Turso's rewrite, ex-<code>limbo</code>) behind the same seam and <strong>re-run the full test suite</strong> (unit, <code>proptest</code>, golden-set replay) against it; (3) <strong>report any incompatibilities or bugs upstream</strong> to the Rust-SQLite project to help them succeed. <em>Exit:</em> either the pure-Rust engine passes the suite (advance it from dev-only toward a supported relational backend), or the gaps are documented and filed upstream while C SQLite remains the dev fallback. <em>Verify first:</em> current maturity/feature-coverage and project name/status of the Rust rewrite (see <a href="05-tech-decisions.html">05-tech-decisions.md</a>).
+- <strong>Spike (DONE — seam proven): pure-Rust SQLite migration.</strong> The <code>LedgerStore</code> seam now has <strong>three interchangeable backends</strong> in <code>crates/oncora-ledger</code> — in-memory, <strong>C SQLite</strong> (<code>rusqlite</code>, <code>bundled</code>), and <strong>pure-Rust SQLite</strong> (<code>turso</code>, ex-<code>limbo</code>) — and an identical conformance test passes against all three (<code>cargo test -p oncora-ledger --features "sqlite-c sqlite-rust"</code>). <em>Remaining strategy:</em> (1) build and <strong>thoroughly test</strong> the broader system on the <strong>C</strong> SQLite so the seam is exercised at scale; (2) <strong>swap in the pure-Rust engine</strong> behind the same trait and <strong>re-run the full suite</strong> (unit, <code>proptest</code>, golden-set replay); (3) <strong>report any incompatibilities upstream</strong> to Turso to help them succeed. <em>Verify:</em> <code>turso</code> 0.6 is pre-1.0 — confirm feature coverage (e.g. transactions, concurrency, full SQL) before promoting it past the dev ledger.
 - <strong>Risk:</strong> stateful-service ops burden. <em>Mitigation:</em> defer FoundationDB; keep stores swappable behind traits.</p>
 <h3 id="phase-6-governance-hardening">Phase 6 — Governance hardening<a class="headerlink" href="#phase-6-governance-hardening" title="Permanent link">#</a></h3>
 <p><strong>Goal.</strong> Lock down the security/privacy/governance controls in §B to review-board grade.</p>
@@ -887,6 +888,7 @@ Related: <a href="00-overview.html">00-overview.md</a> · <a href="01-architectu
 <p>The throughline of this roadmap is the canon's discipline made operational: <strong>build the spine first, thicken one pillar at a time, and put the riskiest young-tech bet on trial before you depend on it.</strong> Every phase retires a named risk; every young dependency has a spike and a fallback; and every deployment and governance control traces to a non-negotiable in the design canon. See <a href="01-architecture.html">01-architecture.md</a> for the runtime this roadmap builds and <a href="06-eval-benchmarking.html">06-eval-benchmarking.md</a> for the gate that keeps it honest.</p>
 <div class="pager">
 <a class="prev" href="07-repo-layout.html"><span class="lbl">Previous</span><span class="ttl">Repo layout</span></a>
+<a class="next" href="09-validation.html"><span class="lbl">Next</span><span class="ttl">Validation report</span></a>
 </div>
 </article>
 </main>

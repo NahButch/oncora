@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Validation report · Oncora</title>
+<meta name="description" content="Oncora — Validation report"/>
+<link rel="icon" href="assets/svg/oncora-mark.svg"/>
+<link rel="stylesheet" href="assets/css/hljs-github-dark.css"/>
+<link rel="stylesheet" href="assets/css/style.css"/>
+</head>
+<body>
+<button class="menu-btn" aria-label="Menu" onclick="document.body.classList.toggle('nav-open')">☰</button>
+<div class="scrim" onclick="document.body.classList.remove('nav-open')"></div>
+<div class="layout">
+<aside class="sidebar" id="sidebar">
+  <a class="brand" href="index.html">
+    <img src="assets/svg/oncora-mark.svg" alt="Oncora"/>
+    <span>
+      <span class="name">Onc<span>ora</span></span>
+      <span class="sub">Oncology Reasoning Agents</span>
+    </span>
+  </a>
+  <nav class="nav">
+<div class="group">Start</div>
+<a class="nav-link" href="index.html"><span>Home</span></a>
+<a class="nav-link" href="00-overview.html"><span class="num">00</span><span>Overview</span></a>
+<div class="group">Architecture</div>
+<a class="nav-link" href="01-architecture.html"><span class="num">01</span><span>Architecture</span></a>
+<a class="nav-link" href="02-memory.html"><span class="num">02</span><span>Agent memory</span></a>
+<a class="nav-link" href="03-uncertainty-reliability.html"><span class="num">03</span><span>Uncertainty</span></a>
+<a class="nav-link" href="04-knowledge-and-data.html"><span class="num">04</span><span>Knowledge & data</span></a>
+<div class="group">Engineering</div>
+<a class="nav-link" href="05-tech-decisions.html"><span class="num">05</span><span>Tech decisions</span></a>
+<a class="nav-link" href="06-eval-benchmarking.html"><span class="num">06</span><span>Eval & benchmarks</span></a>
+<a class="nav-link" href="07-repo-layout.html"><span class="num">07</span><span>Repo layout</span></a>
+<a class="nav-link" href="08-roadmap.html"><span class="num">08</span><span>Roadmap & ops</span></a>
+<a class="nav-link active" href="09-validation.html"><span class="num">09</span><span>Validation report</span></a>
+  </nav>
+  <div class="foot">
+    Rust-native · on-prem · MCP<br/>
+    <a href="https://github.com/NahButch/oncora">github.com/NahButch/oncora</a><br/>
+    <span style="color:#475569">Built 2026-06-03</span>
+  </div>
+</aside>
+<main class="main">
+<div class="page-banner"><img src="assets/svg/banner-eval.svg" alt="Validation report illustration"/></div>
+<article class="content">
+<h1 id="oncora-real-world-validation-report">Oncora — Real-World Validation Report<a class="headerlink" href="#oncora-real-world-validation-report" title="Permanent link">#</a></h1>
+<blockquote>
+<p>Generated from a live run of the all-real <code>Platform</code> (Ollama embeddings + chat, qdrant, oxigraph, redb, rmcp) over real PubMed-sourced oncology literature. <em>Source: PubMed; per-record DOIs are preserved in <code>~/oncora-input-data/corpus.jsonl</code>.</em></p>
+</blockquote>
+<p><strong>Run timestamp:</strong> 2026-06-04 02:28 UTC  </p>
+<p><strong>Configuration:</strong> embed <code>all-minilm</code> (dim 384) · chat <code>qwen2.5:0.5b</code> · qdrant collection <code>oncora_validation</code> · redb <code>/home/tom_b/oncora-input-data/memory.redb</code></p>
+<h2 id="sample-size">Sample size<a class="headerlink" href="#sample-size" title="Permanent link">#</a></h2>
+<p><strong>58 documents</strong> ingested this run (batch offset 0).</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Topic</th>
+<th>Documents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>astrocyte-inflammation</td>
+<td>20</td>
+</tr>
+<tr>
+<td>glial-inflammation</td>
+<td>18</td>
+</tr>
+<tr>
+<td>glioblastoma</td>
+<td>20</td>
+</tr>
+<tr>
+<td><strong>total corpus</strong></td>
+<td><strong>58</strong></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="ingestion-performance-per-component">Ingestion performance (per-component)<a class="headerlink" href="#ingestion-performance-per-component" title="Permanent link">#</a></h2>
+<p>Wall time <strong>3.603 s</strong> · throughput <strong>16.1 docs/s</strong>.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Component</th>
+<th>n</th>
+<th>mean ms</th>
+<th>p50</th>
+<th>p95</th>
+<th>min</th>
+<th>max</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Embedding (Ollama all-minilm)</td>
+<td>58</td>
+<td>58.054</td>
+<td>61.078</td>
+<td>64.481</td>
+<td>35.664</td>
+<td>88.159</td>
+</tr>
+<tr>
+<td>Vector upsert (qdrant)</td>
+<td>58</td>
+<td>2.496</td>
+<td>2.426</td>
+<td>2.916</td>
+<td>1.758</td>
+<td>6.029</td>
+</tr>
+<tr>
+<td>Graph assert (oxigraph)</td>
+<td>58</td>
+<td>0.063</td>
+<td>0.06</td>
+<td>0.079</td>
+<td>0.057</td>
+<td>0.106</td>
+</tr>
+<tr>
+<td>Memory write (redb)</td>
+<td>58</td>
+<td>1.503</td>
+<td>1.495</td>
+<td>2.079</td>
+<td>0.936</td>
+<td>2.338</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="query-performance-end-to-end">Query performance (end-to-end)<a class="headerlink" href="#query-performance-end-to-end" title="Permanent link">#</a></h2>
+<p>3 target-discovery queries · accept rate <strong>100%</strong> · mean calibrated confidence <strong>0.935</strong>.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>n</th>
+<th>mean ms</th>
+<th>p50</th>
+<th>p95</th>
+<th>min</th>
+<th>max</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Vector search (qdrant, real query embed)</td>
+<td>3</td>
+<td>2.813</td>
+<td>1.636</td>
+<td>5.299</td>
+<td>1.504</td>
+<td>5.299</td>
+</tr>
+<tr>
+<td>End-to-end agent (retrieve→reason→verify→score)</td>
+<td>3</td>
+<td>8154.384</td>
+<td>8003.995</td>
+<td>9723.0</td>
+<td>6736.158</td>
+<td>9723.0</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>The end-to-end stage is dominated by LLM inference (3 self-consistency samples per query on CPU). Vector search is sub-millisecond-to-low-ms, showing the data plane is not the bottleneck — the model is.</p>
+</blockquote>
+<h2 id="component-real-backend-what-was-exercised">Component → real backend (what was exercised)<a class="headerlink" href="#component-real-backend-what-was-exercised" title="Permanent link">#</a></h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Trait</th>
+<th>Real backend in this run</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>EmbeddingProvider</code></td>
+<td>Ollama <code>all-minilm</code> (384-dim)</td>
+</tr>
+<tr>
+<td><code>VectorStore</code></td>
+<td>qdrant (gRPC)</td>
+</tr>
+<tr>
+<td><code>GraphStore</code></td>
+<td>oxigraph (RDF quad store)</td>
+</tr>
+<tr>
+<td><code>MemoryStore</code></td>
+<td>redb (persistent, on disk)</td>
+</tr>
+<tr>
+<td><code>ToolHost</code></td>
+<td>rmcp (real MCP)</td>
+</tr>
+<tr>
+<td><code>ModelProvider</code></td>
+<td>Ollama <code>qwen2.5:0.5b</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>All numbers above are from genuine component calls — no stubs, no mocks. The agent runtime was unchanged; only the concrete backends behind the <code>oncora-core</code> traits differ from the in-memory reference.</p>
+<div class="pager">
+<a class="prev" href="08-roadmap.html"><span class="lbl">Previous</span><span class="ttl">Roadmap & ops</span></a>
+</div>
+</article>
+</main>
+</div>
+<script>
+function syncScrim(){document.querySelector('.scrim').classList.toggle('show',document.body.classList.contains('nav-open'));
+  document.getElementById('sidebar').classList.toggle('open',document.body.classList.contains('nav-open'));}
+new MutationObserver(syncScrim).observe(document.body,{attributes:true,attributeFilter:['class']});
+</script>
+<script src="assets/js/highlight.min.js"></script>
+<script src="assets/js/rust.min.js"></script>
+<script src="assets/js/mermaid.min.js"></script>
+<script>
+  document.querySelectorAll('pre code').forEach(function(el){ try{ hljs.highlightElement(el); }catch(e){} });
+  mermaid.initialize({
+    startOnLoad:true, securityLevel:'loose',
+    theme:'base',
+    themeVariables:{
+      darkMode:true, background:'#0c1726',
+      primaryColor:'#13233c', primaryTextColor:'#e6edf6', primaryBorderColor:'#2dd4bf',
+      lineColor:'#7dd3fc', secondaryColor:'#16243d', tertiaryColor:'#0e1b2e',
+      fontFamily:"'Segoe UI',system-ui,sans-serif", fontSize:'15px',
+      clusterBkg:'#0e1b2e', clusterBorder:'#2b405f',
+      actorBkg:'#13233c', actorBorder:'#2dd4bf', actorTextColor:'#e6edf6',
+      signalColor:'#9fb3c8', signalTextColor:'#cbd9ea', labelBoxBkgColor:'#13233c', labelBoxBorderColor:'#2b405f'
+    }
+  });
+</script>
+</body>
+</html>

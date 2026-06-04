@@ -190,14 +190,26 @@ pub async fn run_target_discovery(
     let verifier = GroundedVerifier::new(p.policy.clone());
     let verdict = verifier.verify(&claim, &evidence).await?;
 
+    // The model's answer is the body; the grounding metric is a separate line
+    // (so it reads naturally whether the model returns a token or full prose).
+    let grounding = format!(
+        "[grounding: {} sources · self-consistency {:.0}%]",
+        evidence.support.len(),
+        agreement * 100.0
+    );
     let text = match &verdict {
-        Verdict::Accept => format!(
-            "{modal} is the best-supported answer (agreement {:.0}%, {} sources).",
-            agreement * 100.0,
-            evidence.support.len()
-        ),
+        Verdict::Accept => {
+            let body = modal.trim();
+            if body.is_empty() {
+                grounding.clone()
+            } else {
+                format!("{body}\n{grounding}")
+            }
+        }
         Verdict::Abstain { reason } => format!("Abstaining: {reason}."),
-        Verdict::Escalate { reason, .. } => format!("Escalating for review: {reason}."),
+        Verdict::Escalate { reason, .. } => {
+            format!("Escalating for review: {reason}. {grounding}")
+        }
     };
 
     let answer = Answer {

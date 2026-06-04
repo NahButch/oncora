@@ -14,6 +14,11 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 use oncora_core::{MemoryEntry, MemoryId, MemoryKind, MemoryStore, OncoraError, ReadQuery, Result};
 
+#[cfg(feature = "redb")]
+mod redb_store;
+#[cfg(feature = "redb")]
+pub use redb_store::RedbMemoryStore;
+
 /// Floor below which an entry is considered forgotten (tombstoned).
 const DECAY_FLOOR: f64 = 0.05;
 
@@ -163,20 +168,39 @@ mod tests {
         MemoryEntry::new(key(), MemoryKind::Semantic, ev)
     }
 
-    #[tokio::test]
-    async fn write_dedups_and_read_scopes() {
-        let m = InMemoryMemoryStore::new();
+    /// Backend-agnostic conformance: write dedups equal claims and keeps the
+    /// higher confidence; scoped read returns the consolidated entry.
+    pub async fn conformance(m: &dyn MemoryStore) {
         m.write(entry("EGFR associated with NSCLC", 0.7))
             .await
             .unwrap();
-        m.write(entry("EGFR associated with NSCLC", 0.9))
+        let id = m
+            .write(entry("EGFR associated with NSCLC", 0.9))
             .await
             .unwrap();
-        assert_eq!(m.len(), 1, "duplicate claims consolidate");
 
         let q = ReadQuery::new(key()).with_text("EGFR");
         let hits = m.read(q).await.unwrap();
-        assert_eq!(hits.len(), 1);
+        assert_eq!(hits.len(), 1, "duplicate claims consolidate");
         assert_eq!(hits[0].evidence.confidence.get(), 0.9);
+
+        // Forgetting tombstones the entry; a scoped read no longer returns it.
+        m.forget(&id).await.unwrap();
+        let after = m
+            .read(ReadQuery::new(key()).with_text("EGFR"))
+            .await
+            .unwrap();
+        assert!(after.is_empty(), "forgotten entry is hidden from reads");
+    }
+
+    #[tokio::test]
+    async fn in_memory_conforms() {
+        conformance(&InMemoryMemoryStore::new()).await;
+    }
+
+    #[cfg(feature = "redb")]
+    #[tokio::test]
+    async fn redb_conforms() {
+        conformance(&RedbMemoryStore::in_memory().unwrap()).await;
     }
 }

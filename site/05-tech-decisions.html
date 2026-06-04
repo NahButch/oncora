@@ -35,6 +35,7 @@
 <a class="nav-link" href="06-eval-benchmarking.html"><span class="num">06</span><span>Eval & benchmarks</span></a>
 <a class="nav-link" href="07-repo-layout.html"><span class="num">07</span><span>Repo layout</span></a>
 <a class="nav-link" href="08-roadmap.html"><span class="num">08</span><span>Roadmap & ops</span></a>
+<a class="nav-link" href="09-validation.html"><span class="num">09</span><span>Validation report</span></a>
   </nav>
   <div class="foot">
     Rust-native · on-prem · MCP<br/>
@@ -136,6 +137,9 @@
 </tbody>
 </table></div>
 <p><strong>Decision.</strong> <code>async-openai</code> is the default provider pointed at on-prem vLLM/TGI; <code>async-anthropic</code> is a registered-but-disabled provider for the cloud path; <code>reqwest</code> is the documented fallback. All three are concrete impls of <code>ModelProvider</code> in <code>oncora-agents</code>. See the trust-boundary note in <a href="01-architecture.html">01-architecture.md</a>.</p>
+<blockquote>
+<p><strong>Implemented + verified live.</strong> <code>oncora-agents</code> ships <code>OpenAiModel</code> (<code>async-openai</code> 0.40) behind <code>ModelProvider</code> under <code>--features openai</code>, with <code>temperature = 0</code> for reproducibility. Verified end to end against a real local model: Ollama serving <code>qwen2.5:0.5b</code>, the full agent loop returning genuine model output ("Yes, EGFR is indeed considered a driver gene in NSCLC …"), confidence 0.855, verdict accept, citations [PMID:0001, PMID:0002]. Build/lint runs in CI; the live run is on-demand (needs an LLM server + model pull). Note async-openai 0.40 is heavily feature-gated — <code>chat-completion</code> (pulls <code>_api</code>) + a TLS feature are required, and chat types live under <code>async_openai::types::chat</code>.</p>
+</blockquote>
 <hr />
 <h2 id="3-local-edge-inference">3. Local / edge inference<a class="headerlink" href="#3-local-edge-inference" title="Permanent link">#</a></h2>
 <p>Used for the dev single-node profile (canon Deployment) and for small on-device models: embedders, calibrators, classifiers, and a local LLM when no GPU server is present. The hard constraint: keep pure-Rust tensor/LLM inference separate from the one C++ dependency we tolerate (<code>ort</code>).</p>
@@ -250,6 +254,9 @@
 </tbody>
 </table></div>
 <p><strong>Decision.</strong> <code>qdrant</code> for text/RAG, <code>lancedb</code> for multimodal/imaging, embedded <code>hnsw_rs</code>/<code>instant-distance</code> for dev only. Embeddings via <code>fastembed</code> (primary) or <code>candle</code> (fallback) — both behind <code>EmbeddingProvider</code>. All vector stores implement the <code>VectorStore</code> trait so the fusion layer in <code>oncora-retrieval</code> is store-agnostic.</p>
+<blockquote>
+<p><strong>Implemented.</strong> <code>oncora-retrieval</code> ships <code>QdrantVectorStore</code> (the official <code>qdrant-client</code> gRPC client) behind the <code>VectorStore</code> trait under <code>--features qdrant</code>, interchangeable with <code>InMemoryVectorStore</code>. Its live round-trip test starts qdrant in Docker via <code>testcontainers</code> and runs in the dedicated <code>qdrant-it</code> CI job. Unlike the in-process SQLite/rmcp seams, this one needs a Docker daemon, so it is <strong>not</strong> part of the default <code>cargo test</code>.</p>
+</blockquote>
 <hr />
 <h2 id="6-biomolecular-knowledge-graph-the-dual-store-decision">6. Biomolecular knowledge graph — the dual-store decision<a class="headerlink" href="#6-biomolecular-knowledge-graph-the-dual-store-decision" title="Permanent link">#</a></h2>
 <p>This is the most deliberate architectural call in the data layer, so it gets the most justification. The canon mandates <strong>two</strong> graph stores, not one. Here is why that is correct and not over-engineering.</p>
@@ -296,6 +303,9 @@
 </tbody>
 </table></div>
 <p><strong>Decision.</strong> Dual store: <code>oxigraph</code> for the ontology layer (SPARQL over imported RDF), <code>cozo</code> for the evidence/assertion graph (Datalog + time-travel + per-edge confidence + vector), <code>indradb</code> as the evidence-graph fallback, Jena rejected for the JVM. Both stores are concrete <code>GraphStore</code> impls. Full schema and entity/edge model in <a href="04-knowledge-and-data.html">04-knowledge-and-data.md</a>.</p>
+<blockquote>
+<p><strong>Implemented (oxigraph) + finding on cozo.</strong> <code>oncora-kg</code> ships <code>OxigraphGraphStore</code> behind the <code>GraphStore</code> trait under <code>--features oxigraph</code> (pure-Rust in-memory RDF quad store; <code>default-features = false</code> keeps RocksDB out). It passes the same conformance test as <code>InMemoryGraphStore</code>, with per-edge <strong>confidence</strong> carried in the quad's named-graph component (<code>urn:oncora:conf:&lt;v&gt;</code>). <strong>cozo is deferred</strong>, not for capability but for two concrete build-integration reasons discovered while wiring it: (1) cozo's <code>minimal</code> feature pulls native SQLite (<code>storage-sqlite</code> → <code>sqlite3-src</code>), which <strong><code>links</code>-clashes</strong> with the ledger's <code>rusqlite</code> (both claim the native <code>sqlite3</code> lib — Cargo forbids two such packages in one workspace); and (2) the only way to get the in-memory engine without SQLite (<code>graph-algo</code>) pulls <code>graph_builder 0.4.1</code>, which does not compile against current <code>rayon</code>. Re-evaluate cozo when these upstream issues resolve (newer cozo with a true mem-only feature, or running cozo in its own process behind the trait). The <code>GraphStore</code> seam means this swap costs nothing downstream.</p>
+</blockquote>
 <hr />
 <h2 id="7-omics-tabular-analytics">7. Omics &amp; tabular analytics<a class="headerlink" href="#7-omics-tabular-analytics" title="Permanent link">#</a></h2>
 <p>Multi-omics arrives as large tabular and genomics-format data, read from pinned Parquet snapshots and genomics files, never written back to source. The genomics-IO choice is also a Rust-native-vs-C-bindings decision.</p>
@@ -402,10 +412,22 @@
 <td>Mature. <strong>Verify</strong>: migration discipline and that compile-time query checking is wired into CI.</td>
 </tr>
 <tr>
-<td>SQLite — <strong>C library</strong> (via <code>sqlx</code>/<code>rusqlite</code>)</td>
+<td>SQLite — <strong>C library</strong> (<code>rusqlite</code>, <code>bundled</code>)</td>
 <td><strong>Fallback (dev relational)</strong></td>
-<td>Same <code>sqlx</code> code path, single-file DB for the dev profile. NB: this is the upstream <strong>C</strong> SQLite amalgamation linked into the binary — a non-Rust dependency isolated behind <code>sqlx</code> + the relational/<code>MemoryStore</code> seam (see §Non-Rust isolation).</td>
-<td>Dev/single-node only; production ledger is Postgres for HA. <strong>Planned:</strong> start on the C version and harden the system against it, then swap to a pure-Rust SQLite (Turso's rewrite, ex-<code>limbo</code>) behind the same seam — see the SQLite-swap spike in <a href="08-roadmap.html">08-roadmap.md</a>.</td>
+<td>Single-file DB for the dev profile. The upstream <strong>C</strong> SQLite amalgamation compiled and linked into the binary — a non-Rust dependency isolated behind the <code>LedgerStore</code> seam (see §Non-Rust isolation).</td>
+<td>Dev/single-node only; production ledger is Postgres for HA.</td>
+</tr>
+<tr>
+<td>SQLite — <strong>pure Rust</strong> (<code>turso</code>, ex-<code>limbo</code>)</td>
+<td><strong>Fallback (dev relational, Rust-native)</strong></td>
+<td>Same <code>LedgerStore</code> trait, same SQL schema, no C in the build. The Rust-native end-state for the embedded relational slot.</td>
+<td><code>turso</code> 0.6 is young/pre-1.0 — <strong>verify</strong> feature coverage before relying on it for anything beyond the dev ledger.</td>
+</tr>
+<tr>
+<td><strong>C ↔ Rust SQLite swap</strong></td>
+<td><strong>Implemented + tested</strong></td>
+<td>Both backends live in <code>crates/oncora-ledger</code> behind one <code>LedgerStore</code> trait; an identical conformance test passes against in-memory, C SQLite, and pure-Rust SQLite (<code>cargo test -p oncora-ledger --features "sqlite-c sqlite-rust"</code>). This is the runnable form of the migration spike in <a href="08-roadmap.html">08-roadmap.md</a>.</td>
+<td>Default workspace build stays pure-Rust + fast (backends are opt-in Cargo features).</td>
 </tr>
 <tr>
 <td><code>foundationdb</code></td>

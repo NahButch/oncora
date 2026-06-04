@@ -35,6 +35,7 @@
 <a class="nav-link" href="06-eval-benchmarking.html"><span class="num">06</span><span>Eval & benchmarks</span></a>
 <a class="nav-link" href="07-repo-layout.html"><span class="num">07</span><span>Repo layout</span></a>
 <a class="nav-link" href="08-roadmap.html"><span class="num">08</span><span>Roadmap & ops</span></a>
+<a class="nav-link" href="09-validation.html"><span class="num">09</span><span>Validation report</span></a>
   </nav>
   <div class="foot">
     Rust-native · on-prem · MCP<br/>
@@ -231,6 +232,9 @@ verbatim from the canon's LOCKED technology decisions.</p>
 </tr>
 </tbody>
 </table></div>
+<blockquote>
+<p><strong>Implemented.</strong> <code>oncora-memory</code> ships <code>RedbMemoryStore</code> (pure-Rust embedded ACID KV) behind the same <code>MemoryStore</code> trait as <code>InMemoryMemoryStore</code>, under <code>--features redb</code> — durable, on-disk working/episodic memory. Both pass an identical conformance test (write/dedup/conflict-resolve → scoped read → tombstone on forget). It was exercised in the <a href="09-validation.html">real-world validation run</a>: memory writes averaged ~1.5 ms over 58 documents.</p>
+</blockquote>
 <hr />
 <h2 id="3-write-path-deep-dive">3. Write path deep dive<a class="headerlink" href="#3-write-path-deep-dive" title="Permanent link">#</a></h2>
 <p>The write path converts raw run activity into durable, deduplicated, conflict-resolved,

@@ -13,11 +13,12 @@ default = []
 qdrant = ["oncora-retrieval/qdrant"]
 # Real LLM inference + embeddings via an OpenAI-compatible endpoint (Ollama, vLLM, TGI).
 openai = ["dep:async-openai"]
-# Real graph backend (Oxigraph) and real MCP tool host (rmcp).
+# Real graph backend (Oxigraph), real MCP tool host (rmcp), persistent memory (redb).
 oxigraph-graph = ["oncora-kg/oxigraph"]
 rmcp-tools = ["oncora-mcp-host/rmcp"]
-# Everything real at once: embeddings + vectors + graph + tools + model.
-e2e = ["qdrant", "openai", "oxigraph-graph", "rmcp-tools"]
+redb-mem = ["oncora-memory/redb"]
+# Everything real at once: embeddings + vectors + graph + tools + model + memory.
+e2e = ["qdrant", "openai", "oxigraph-graph", "rmcp-tools", "redb-mem"]
 
 [dependencies]
 oncora-core.workspace = true
@@ -42,4 +43,16 @@ async-openai = { version = "0.40", default-features = false, features = [
 ], optional = true }
 
 [dev-dependencies]
-tokio.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+anyhow.workspace = true
+serde_json.workspace = true
+
+# The benchmark/ingest harness needs the real backends behind the feature seams.
+oncora-retrieval = { workspace = true, features = ["qdrant"] }
+oncora-kg = { workspace = true, features = ["oxigraph"] }
+oncora-memory = { workspace = true, features = ["redb"] }
+oncora-mcp-host = { workspace = true, features = ["rmcp"] }
+
+[[example]]
+name = "bench"
+required-features = ["e2e"]

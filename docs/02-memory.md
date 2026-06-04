@@ -109,6 +109,8 @@ verbatim from the canon's LOCKED technology decisions.
 | Procedural | learned patterns | long-lived | `cozo` | CAS manifests |
 | Provenance | audit + replay | permanent, immutable | Postgres ledger | CAS |
 
+> **Implemented.** `oncora-memory` ships `RedbMemoryStore` (pure-Rust embedded ACID KV) behind the same `MemoryStore` trait as `InMemoryMemoryStore`, under `--features redb` — durable, on-disk working/episodic memory. Both pass an identical conformance test (write/dedup/conflict-resolve → scoped read → tombstone on forget). It was exercised in the [real-world validation run](09-validation.md): memory writes averaged ~1.5 ms over 58 documents.
+
 ---
 
 ## 3. Write path deep dive
