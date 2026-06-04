@@ -51,11 +51,11 @@
 <blockquote>
 <p>Generated from a live, long-running run of the all-real <code>Platform</code> (Ollama embeddings + chat, qdrant, oxigraph, redb, rmcp) over real oncology literature. <strong>Source: PubMed</strong>; per-record DOIs are preserved in <code>~/oncora-input-data/corpus.jsonl</code>. No stubs or mocks — every number is from a genuine component call.</p>
 </blockquote>
-<p><strong>Run finished:</strong> 2026-06-04 03:00 UTC<br />
-<strong>Batches:</strong> 5<br />
-<strong>Configuration:</strong> embed <code>all-minilm</code> (dim 384) · chat <code>qwen2.5:0.5b</code> · qdrant <code>oncora_run</code> · redb (on disk)</p>
+<p><strong>Run finished:</strong> 2026-06-04 05:16 UTC<br />
+<strong>Batches:</strong> 15<br />
+<strong>Configuration:</strong> embed <code>all-minilm</code> (dim 384) · chat <code>qwen2.5:0.5b</code> · qdrant <code>oncora_retest</code> · redb (on disk)</p>
 <h2 id="sample-size">Sample size<a class="headerlink" href="#sample-size" title="Permanent link">#</a></h2>
-<p><strong>980 documents</strong> ingested across <strong>5 throttled batches</strong> into a cumulative qdrant collection + persistent redb memory.</p>
+<p><strong>14469 documents</strong> ingested across <strong>15 throttled batches</strong> into a cumulative qdrant collection + persistent redb memory.</p>
 <div class="table-wrap"><table>
 <thead>
 <tr>
@@ -66,36 +66,60 @@
 <tbody>
 <tr>
 <td>IDH mutant glioma</td>
-<td>165</td>
+<td>1137</td>
 </tr>
 <tr>
-<td>astrocyte inflammation</td>
-<td>200</td>
+<td>astrocyte</td>
+<td>1500</td>
 </tr>
 <tr>
-<td>glial inflammation</td>
-<td>41</td>
+<td>brain tumor</td>
+<td>1263</td>
+</tr>
+<tr>
+<td>diffuse midline glioma</td>
+<td>728</td>
 </tr>
 <tr>
 <td>glioblastoma</td>
-<td>197</td>
+<td>1463</td>
 </tr>
 <tr>
 <td>glioblastoma immunotherapy</td>
-<td>181</td>
+<td>1303</td>
+</tr>
+<tr>
+<td>glioblastoma temozolomide</td>
+<td>1215</td>
 </tr>
 <tr>
 <td>glioma</td>
-<td>196</td>
+<td>1456</td>
+</tr>
+<tr>
+<td>glioma stem cells</td>
+<td>1326</td>
+</tr>
+<tr>
+<td>low grade glioma</td>
+<td>951</td>
+</tr>
+<tr>
+<td>microglia</td>
+<td>1256</td>
+</tr>
+<tr>
+<td>oligodendroglioma</td>
+<td>871</td>
 </tr>
 <tr>
 <td><strong>total corpus</strong></td>
-<td><strong>980</strong></td>
+<td><strong>14469</strong></td>
 </tr>
 </tbody>
 </table></div>
 <h2 id="ingestion-performance-per-component-aggregate-over-all-batches">Ingestion performance — per component (aggregate over all batches)<a class="headerlink" href="#ingestion-performance-per-component-aggregate-over-all-batches" title="Permanent link">#</a></h2>
-<p>Total ingest wall time <strong>74.718 s</strong> · overall throughput <strong>13.116 docs/s</strong> (held steady as the index grew).</p>
+<p>Total ingest wall time <strong>681.938 s</strong> · overall throughput <strong>21.217 docs/s</strong> (held steady as the index grew).</p>
 <div class="table-wrap"><table>
 <thead>
 <tr>
@@ -109,36 +133,36 @@
 <tbody>
 <tr>
 <td>Embedding — Ollama all-minilm</td>
-<td>980</td>
-<td>65.682</td>
-<td>21.562</td>
-<td>95.603</td>
+<td>14469</td>
+<td>41.231</td>
+<td>37.201</td>
+<td>43.679</td>
 </tr>
 <tr>
 <td>Vector upsert — qdrant</td>
-<td>980</td>
-<td>2.47</td>
-<td>1.678</td>
-<td>6.737</td>
+<td>14469</td>
+<td>2.09</td>
+<td>1.267</td>
+<td>12.159</td>
 </tr>
 <tr>
 <td>Graph assert — oxigraph</td>
-<td>980</td>
-<td>0.068</td>
-<td>0.061</td>
-<td>0.223</td>
+<td>14469</td>
+<td>0.056</td>
+<td>0.04</td>
+<td>0.222</td>
 </tr>
 <tr>
 <td>Memory write — redb</td>
-<td>980</td>
-<td>8.021</td>
-<td>0.88</td>
-<td>17.099</td>
+<td>14469</td>
+<td>1.161</td>
+<td>0.793</td>
+<td>30.6</td>
 </tr>
 </tbody>
 </table></div>
 <h2 id="query-performance-end-to-end-aggregate">Query performance — end-to-end (aggregate)<a class="headerlink" href="#query-performance-end-to-end-aggregate" title="Permanent link">#</a></h2>
-<p><strong>15 queries</strong> over the run · accept rate <strong>100%</strong> · mean calibrated confidence rose <strong>0.966 → 0.935</strong> as the corpus (and retrievable grounding) grew.</p>
+<p><strong>45 queries</strong> over the run · accept rate <strong>100%</strong> · mean calibrated confidence rose <strong>0.935 → 0.966</strong> as the corpus (and retrievable grounding) grew.</p>
 <div class="table-wrap"><table>
 <thead>
 <tr>
@@ -152,22 +176,22 @@
 <tbody>
 <tr>
 <td>Vector search — qdrant</td>
-<td>15</td>
-<td>1.72</td>
-<td>1.323</td>
-<td>2.718</td>
+<td>45</td>
+<td>2.216</td>
+<td>1.568</td>
+<td>3.292</td>
 </tr>
 <tr>
 <td>End-to-end agent — retrieve→reason→verify→score</td>
-<td>15</td>
-<td>5830.663</td>
-<td>3728.047</td>
-<td>9256.739</td>
+<td>45</td>
+<td>5939.534</td>
+<td>3775.544</td>
+<td>12050.059</td>
 </tr>
 </tbody>
 </table></div>
 <blockquote>
-<p>End-to-end latency is <strong>LLM-bound</strong> (3 self-consistency samples/query on CPU); it fell from <strong>3900.199 ms</strong> (cold) to <strong>6332.388 ms</strong> (warm). The data plane — embeddings, vector search, graph, memory — is single-digit-to-low-tens of milliseconds throughout, so the model, not the infrastructure, is the cost.</p>
+<p>End-to-end latency is <strong>LLM-bound</strong> (3 self-consistency samples/query on CPU); it fell from <strong>10479.091 ms</strong> (cold) to <strong>3959.943 ms</strong> (warm). The data plane — embeddings, vector search, graph, memory — is single-digit-to-low-tens of milliseconds throughout, so the model, not the infrastructure, is the cost.</p>
 </blockquote>
 <h2 id="per-batch-trend">Per-batch trend<a class="headerlink" href="#per-batch-trend" title="Permanent link">#</a></h2>
 <div class="table-wrap"><table>
@@ -184,47 +208,127 @@
 <tbody>
 <tr>
 <td>0</td>
-<td>200</td>
-<td>14.91</td>
-<td>62.108</td>
-<td>3900.199</td>
+<td>1000</td>
+<td>20.89</td>
+<td>41.897</td>
+<td>10479.091</td>
+<td>0.935</td>
+</tr>
+<tr>
+<td>1000</td>
+<td>1000</td>
+<td>21.26</td>
+<td>41.203</td>
+<td>8884.082</td>
+<td>0.92</td>
+</tr>
+<tr>
+<td>2000</td>
+<td>1000</td>
+<td>21.25</td>
+<td>41.145</td>
+<td>6758.724</td>
+<td>0.95</td>
+</tr>
+<tr>
+<td>3000</td>
+<td>1000</td>
+<td>21.46</td>
+<td>40.782</td>
+<td>4393.777</td>
 <td>0.966</td>
 </tr>
 <tr>
-<td>200</td>
-<td>200</td>
-<td>14.34</td>
-<td>61.867</td>
-<td>8869.282</td>
-<td>0.935</td>
-</tr>
-<tr>
-<td>400</td>
-<td>200</td>
-<td>13.12</td>
-<td>65.441</td>
-<td>3792.594</td>
+<td>4000</td>
+<td>1000</td>
+<td>20.8</td>
+<td>42.21</td>
+<td>3878.272</td>
 <td>0.966</td>
 </tr>
 <tr>
-<td>600</td>
-<td>200</td>
-<td>12.14</td>
-<td>68.839</td>
-<td>6258.852</td>
+<td>5000</td>
+<td>1000</td>
+<td>20.89</td>
+<td>41.961</td>
+<td>3877.87</td>
+<td>0.966</td>
+</tr>
+<tr>
+<td>6000</td>
+<td>1000</td>
+<td>21.19</td>
+<td>41.359</td>
+<td>4895.679</td>
+<td>0.95</td>
+</tr>
+<tr>
+<td>7000</td>
+<td>1000</td>
+<td>21.05</td>
+<td>41.513</td>
+<td>3940.838</td>
+<td>0.966</td>
+</tr>
+<tr>
+<td>8000</td>
+<td>1000</td>
+<td>20.85</td>
+<td>42.014</td>
+<td>7001.501</td>
 <td>0.935</td>
 </tr>
 <tr>
-<td>800</td>
-<td>180</td>
-<td>11.51</td>
-<td>70.651</td>
-<td>6332.388</td>
+<td>9000</td>
+<td>1000</td>
+<td>22.52</td>
+<td>38.473</td>
+<td>6447.261</td>
 <td>0.935</td>
+</tr>
+<tr>
+<td>10000</td>
+<td>1000</td>
+<td>21.23</td>
+<td>41.187</td>
+<td>3934.959</td>
+<td>0.966</td>
+</tr>
+<tr>
+<td>11000</td>
+<td>1000</td>
+<td>21.29</td>
+<td>41.122</td>
+<td>7257.807</td>
+<td>0.935</td>
+</tr>
+<tr>
+<td>12000</td>
+<td>1000</td>
+<td>20.84</td>
+<td>42.044</td>
+<td>7886.099</td>
+<td>0.95</td>
+</tr>
+<tr>
+<td>13000</td>
+<td>1000</td>
+<td>21.62</td>
+<td>40.386</td>
+<td>5497.108</td>
+<td>0.966</td>
+</tr>
+<tr>
+<td>14000</td>
+<td>469</td>
+<td>21.27</td>
+<td>41.081</td>
+<td>3959.943</td>
+<td>0.966</td>
 </tr>
 </tbody>
 </table></div>
-<p><strong>Ingest throughput across batches:</strong> mean 13.204 docs/s (min 11.51, max 14.91) — flat, i.e. ingestion scaled cleanly with corpus size.</p>
+<p><strong>Ingest throughput across batches:</strong> mean 21.227 docs/s (min 20.8, max 22.52) — flat, i.e. ingestion scaled cleanly with corpus size.</p>
 <h2 id="component-real-backend-exercised">Component → real backend exercised<a class="headerlink" href="#component-real-backend-exercised" title="Permanent link">#</a></h2>
 <div class="table-wrap"><table>
 <thead>

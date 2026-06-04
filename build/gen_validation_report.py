@@ -17,9 +17,23 @@ RESULTS = pathlib.Path("/home/tom_b/oncora-input-data/validation-results.jsonl")
 FALLBACK = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "bench-stats.json"
 OUT = ROOT / "docs" / "09-validation.md"
 
+def read_jsonl(path):
+    # Split on '\n' only (abstracts contain Unicode line separators that
+    # str.splitlines() would break on), and skip any unparseable line.
+    out = []
+    for l in path.read_text(encoding="utf-8").split("\n"):
+        l = l.strip()
+        if not l:
+            continue
+        try:
+            out.append(json.loads(l))
+        except Exception:
+            pass
+    return out
+
 rows = []
 if RESULTS.exists():
-    rows = [json.loads(l) for l in RESULTS.read_text().splitlines() if l.strip()]
+    rows = read_jsonl(RESULTS)
 if not rows and FALLBACK.exists():
     rows = [json.loads(FALLBACK.read_text())]
 if not rows:
@@ -31,10 +45,9 @@ stamp = datetime.datetime.fromtimestamp(rows[-1]["timestamp_ms"] / 1000, datetim
 # topic breakdown
 topics = {}
 if CORPUS.exists():
-    for line in CORPUS.read_text().splitlines():
-        if line.strip():
-            t = json.loads(line).get("topic", "?")
-            topics[t] = topics.get(t, 0) + 1
+    for rec in read_jsonl(CORPUS):
+        t = rec.get("topic", "?")
+        topics[t] = topics.get(t, 0) + 1
 
 def r3(x):
     return round(x, 3)

@@ -17,7 +17,15 @@ FILES = {"C SQLite (rusqlite)": IN / "results-sqlite-c.jsonl",
          "Rust SQLite (turso)": IN / "results-sqlite-rust.jsonl"}
 
 def load(p):
-    return [json.loads(l) for l in p.read_text().splitlines() if l.strip()] if p.exists() else []
+    if not p.exists():
+        return []
+    out=[]
+    for l in p.read_text(encoding="utf-8").split("\n"):
+        l=l.strip()
+        if not l: continue
+        try: out.append(json.loads(l))
+        except Exception: pass
+    return out
 
 runs = {name: load(p) for name, p in FILES.items()}
 runs = {k: v for k, v in runs.items() if v}

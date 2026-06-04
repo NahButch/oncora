@@ -66,4 +66,4 @@ The only component that differs between the two runs — same schema, same per-d
 **Result:** at 14469 sequential per-document writes, **Rust SQLite (turso)** had the lower mean latency (1.30× difference). Both completed the full bulk load without error — pure-Rust SQLite (turso) is viable as the dev relational/ledger backend at this scale, behind the same `LedgerStore` trait as C SQLite.
 
 
-*Generated 2026-06-04 04:41 UTC.*
+*Generated 2026-06-04 05:18 UTC.*
