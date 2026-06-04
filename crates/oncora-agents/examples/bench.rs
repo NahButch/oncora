@@ -92,7 +92,7 @@ async fn main() -> anyhow::Result<()> {
     let all: Vec<Record> = std::fs::read_to_string(&corpus_path)?
         .lines()
         .filter(|l| !l.trim().is_empty())
-        .map(|l| serde_json::from_str(l))
+        .map(serde_json::from_str)
         .collect::<Result<_, _>>()?;
     let batch_size: usize = std::env::var("ONCORA_BATCH_SIZE")
         .ok()
