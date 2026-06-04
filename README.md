@@ -14,7 +14,14 @@ What makes Oncora different from a generic RAG chatbot is built into its archite
 - **Provenance on every claim** — each conclusion is traceable to its sources, tool calls, model pin, and data snapshot.
 - **Typed, calibrated uncertainty** — confidence is a first-class value that flows through the system; agents **abstain or escalate** rather than confabulate.
 
-> This repository contains the **architecture and technical specification** *and* a **compiling Cargo workspace** — the Phase-0 walking skeleton from [docs/08-roadmap.md](docs/08-roadmap.md) runs end to end. The crate layout follows [docs/07-repo-layout.md](docs/07-repo-layout.md).
+> **Status: a well-tested, end-to-end functional prototype** (held here intentionally — it
+> demonstrates the architecture sufficiently). Every external dependency sits behind a swappable
+> `oncora-core` trait, and each seam has been run green against a *real* backend — Ollama (LLM +
+> embeddings), qdrant, oxigraph, redb, **pure-Rust SQLite (turso)**, and rmcp — then validated
+> over **14,469 real PubMed abstracts** ingested cold through the all-real pipeline. See
+> [docs/11-status.md](docs/11-status.md) for what's proven and what remains (deployment +
+> governance hardening, Phases 5–6). Architecture/spec in [docs/](docs/); crate layout in
+> [docs/07-repo-layout.md](docs/07-repo-layout.md).
 
 ### Build & run the walking skeleton
 

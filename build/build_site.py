@@ -46,6 +46,7 @@ PAGES = [
     ("08-roadmap",               "Roadmap & ops",       "banner-roadmap"),
     ("09-validation",            "Validation report",   "banner-eval"),
     ("10-cold-compare",          "Cold-start & SQLite", "banner-tech"),
+    ("11-status",                "Status & remaining",  "banner-roadmap"),
 ]
 NAV_GROUPS = [
     ("Start", [("index", "Home")] + [(s, t) for (s, t, _) in PAGES[:1]]),

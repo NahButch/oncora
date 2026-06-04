@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Status & remaining · Oncora</title>
+<meta name="description" content="Oncora — Status & remaining"/>
+<link rel="icon" href="assets/svg/oncora-mark.svg"/>
+<link rel="stylesheet" href="assets/css/hljs-github-dark.css"/>
+<link rel="stylesheet" href="assets/css/style.css"/>
+</head>
+<body>
+<button class="menu-btn" aria-label="Menu" onclick="document.body.classList.toggle('nav-open')">☰</button>
+<div class="scrim" onclick="document.body.classList.remove('nav-open')"></div>
+<div class="layout">
+<aside class="sidebar" id="sidebar">
+  <a class="brand" href="index.html">
+    <img src="assets/svg/oncora-mark.svg" alt="Oncora"/>
+    <span>
+      <span class="name">Onc<span>ora</span></span>
+      <span class="sub">Oncology Reasoning Agents</span>
+    </span>
+  </a>
+  <nav class="nav">
+<div class="group">Start</div>
+<a class="nav-link" href="index.html"><span>Home</span></a>
+<a class="nav-link" href="00-overview.html"><span class="num">00</span><span>Overview</span></a>
+<div class="group">Architecture</div>
+<a class="nav-link" href="01-architecture.html"><span class="num">01</span><span>Architecture</span></a>
+<a class="nav-link" href="02-memory.html"><span class="num">02</span><span>Agent memory</span></a>
+<a class="nav-link" href="03-uncertainty-reliability.html"><span class="num">03</span><span>Uncertainty</span></a>
+<a class="nav-link" href="04-knowledge-and-data.html"><span class="num">04</span><span>Knowledge & data</span></a>
+<div class="group">Engineering</div>
+<a class="nav-link" href="05-tech-decisions.html"><span class="num">05</span><span>Tech decisions</span></a>
+<a class="nav-link" href="06-eval-benchmarking.html"><span class="num">06</span><span>Eval & benchmarks</span></a>
+<a class="nav-link" href="07-repo-layout.html"><span class="num">07</span><span>Repo layout</span></a>
+<a class="nav-link" href="08-roadmap.html"><span class="num">08</span><span>Roadmap & ops</span></a>
+<a class="nav-link" href="09-validation.html"><span class="num">09</span><span>Validation report</span></a>
+<a class="nav-link" href="10-cold-compare.html"><span class="num">10</span><span>Cold-start & SQLite</span></a>
+<a class="nav-link active" href="11-status.html"><span class="num">11</span><span>Status & remaining</span></a>
+  </nav>
+  <div class="foot">
+    Rust-native · on-prem · MCP<br/>
+    <a href="https://github.com/NahButch/oncora">github.com/NahButch/oncora</a><br/>
+    <span style="color:#475569">Built 2026-06-03</span>
+  </div>
+</aside>
+<main class="main">
+<div class="page-banner"><img src="assets/svg/banner-roadmap.svg" alt="Status & remaining illustration"/></div>
+<article class="content">
+<h1 id="oncora-prototype-status-remaining-work">Oncora — Prototype Status &amp; Remaining Work<a class="headerlink" href="#oncora-prototype-status-remaining-work" title="Permanent link">#</a></h1>
+<blockquote>
+<p><strong>Status: a well-tested, end-to-end functional prototype.</strong> The platform is
+held here intentionally — it demonstrates the architecture's thesis (every
+external dependency behind a swappable <code>oncora-core</code> trait) against <em>real</em>
+backends, validated over real PubMed literature at scale. What remains is
+production hardening (deployment, governance) and depth on the research
+pillars — not core correctness.</p>
+</blockquote>
+<h2 id="what-the-prototype-demonstrates-done-verified">What the prototype demonstrates (done &amp; verified)<a class="headerlink" href="#what-the-prototype-demonstrates-done-verified" title="Permanent link">#</a></h2>
+<p>The agent runtime (<code>run_target_discovery</code>: retrieve → reason → verify → score →
+accept/abstain/escalate → persist) was <strong>never changed</strong> as backends were swapped
+from in-memory references to real implementations. Every seam below was run green
+against a genuine backend:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th><code>oncora-core</code> trait</th>
+<th>Real backend</th>
+<th>Verified</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ModelProvider</code></td>
+<td>Ollama (<code>qwen2.5:0.5b</code>) via <code>async-openai</code></td>
+<td>live inference, accept/abstain works</td>
+</tr>
+<tr>
+<td><code>EmbeddingProvider</code></td>
+<td>Ollama (<code>all-minilm</code>, 384-d)</td>
+<td>semantic ranking confirmed</td>
+</tr>
+<tr>
+<td><code>VectorStore</code></td>
+<td>qdrant (gRPC)</td>
+<td>round-trip + full agent E2E</td>
+</tr>
+<tr>
+<td><code>GraphStore</code></td>
+<td>oxigraph (RDF/SPARQL)</td>
+<td>conformance + per-edge confidence</td>
+</tr>
+<tr>
+<td><code>MemoryStore</code></td>
+<td>redb (persistent, on disk)</td>
+<td>conformance; O(1) write</td>
+</tr>
+<tr>
+<td><code>LedgerStore</code></td>
+<td><strong>pure-Rust SQLite (<code>turso</code>)</strong> — chosen</td>
+<td>14,469 writes, 0 errors, ~23% faster than C SQLite</td>
+</tr>
+<tr>
+<td><code>ToolHost</code></td>
+<td>rmcp (real MCP server + client)</td>
+<td>loopback round-trip</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Real-world validation</strong> (<a href="09-validation.html">09-validation.md</a>, <a href="10-cold-compare.html">10-cold-compare.md</a>):
+- <strong>14,469 PubMed abstracts</strong> (glioblastoma / glioma / IDH-mutant / immunotherapy /
+  astrocyte·glial·microglia inflammation) ingested cold through the all-real pipeline.
+- Ingest <strong>~21 docs/s</strong> (batched embedding); per-component <strong>flat at scale</strong> — qdrant
+  upsert ~2.1 ms, redb memory ~1.2 ms, oxigraph ~0.06 ms, turso ledger ~2.0 ms.
+- Query: accept 100%, calibrated confidence rose with corpus size; end-to-end is
+  <strong>LLM-bound</strong> (the data plane is single-digit-millisecond throughout).
+- Provenance ledger is written <strong>inside the agent loop</strong> (a record per run).</p>
+<p><strong>Bugs surfaced and fixed by real data/scale:</strong> O(N²) memory dedup → O(1) index;
+oxigraph IRI encoding for arbitrary tokens; qdrant fd-limit; report-generator
+Unicode-line handling. (Exactly what a real bulk validation is for.)</p>
+<h2 id="remaining-work">Remaining work<a class="headerlink" href="#remaining-work" title="Permanent link">#</a></h2>
+<h3 id="quick-wins">Quick wins<a class="headerlink" href="#quick-wins" title="Permanent link">#</a></h3>
+<ul>
+<li><strong>Inference/embedding request concurrency</strong> — batching used some idle cores; concurrent Ollama requests would use the rest.</li>
+<li><strong>Memory <code>read</code> is O(N)</strong> — <code>write</code> is O(1); index <code>read</code> by scope.</li>
+<li><strong>qdrant client/server version bump</strong> (1.18 vs 1.12.4) — silence the compatibility warning.</li>
+</ul>
+<h3 id="deeper-research-pillars">Deeper / research pillars<a class="headerlink" href="#deeper-research-pillars" title="Permanent link">#</a></h3>
+<ul>
+<li><strong>cozo <code>GraphStore</code></strong> — one of two blockers cleared by choosing turso (native-<code>sqlite3</code> <code>links</code>); the <code>graph_builder</code>/<code>rayon</code> compile break remains. Pin/patch or run cozo out-of-process.</li>
+<li><strong><code>rig</code> / <code>swiftide</code></strong> — named primary in the canon but not adopted (in-house orchestrator + simple ingest built instead). Decide: adopt or formally retire in the docs.</li>
+<li><strong>Uncertainty depth</strong> — conformal prediction + post-hoc calibration fitted from the eval harness (currently a temperature calibrator + grounded verifier).</li>
+<li><strong>Eval vs human-experts &amp; baselines</strong> — <code>oncora-eval</code> has the scaffolding (golden cases, ECE, CI gate) but needs real golden datasets and baseline comparison arms.</li>
+<li><strong>Multi-agent topology</strong> — planner → domain specialists → verifier as an actual runtime (currently a single end-to-end function).</li>
+</ul>
+<h3 id="phase-5-deployment-scale-out-single-node-multi-node">Phase 5 — Deployment scale-out (single-node → multi-node)<a class="headerlink" href="#phase-5-deployment-scale-out-single-node-multi-node" title="Permanent link">#</a></h3>
+<ol>
+<li><strong>Config-driven <code>Platform</code> assembly</strong> (replace <code>Platform::demo()</code> — the unlock for everything else here).</li>
+<li>Stateless <code>oncora-api</code>/agent workers behind a load balancer (horizontal scale).</li>
+<li>Externalize stores: qdrant cluster, <strong>Postgres HA</strong> provenance ledger, oxigraph/cozo as services.</li>
+<li>On-prem GPU model server (vLLM/TGI) behind <code>ModelProvider</code>; size concurrency caps.</li>
+<li>Object-store-backed CAS (<code>ArtifactStore</code> → S3/MinIO).</li>
+<li>OTel collector wiring (<code>tracing-opentelemetry</code>).</li>
+<li>Upgrade/rollback: expand-contract migrations, golden-set replay-diff gate, confirmed rollback.</li>
+<li>Spikes: on-prem model throughput (tokens/s under concurrency); qdrant cluster sharding at scale.</li>
+</ol>
+<p><em>Exit:</em> horizontal scale under load · Postgres + qdrant failover · upgrade validated by replay diff · rollback confirmed.</p>
+<h3 id="phase-6-governance-hardening-review-board-grade">Phase 6 — Governance hardening (review-board grade)<a class="headerlink" href="#phase-6-governance-hardening-review-board-grade" title="Permanent link">#</a></h3>
+<ol>
+<li><strong>RBAC</strong> — project/workflow-scoped access control on the API.</li>
+<li><strong>Provenance lineage walk</strong> — query any claim → sources, tool calls, model pin, snapshot (the per-run ledger record is already written — add the lineage query + API).</li>
+<li><strong>Audit completeness</strong> — record-before-return invariant at the MCP host; property-test it (<code>McpHost</code> already keeps an audit log).</li>
+<li><strong>PHI/PII redaction + egress blocking</strong> — redact logs/traces; egress proxy denies PHI leaving the boundary; adversarial leak testing.</li>
+<li><strong>Reviewer adjudication queue</strong> — route <code>Verdict::Escalate</code> to human sign-off.</li>
+<li><strong>ALCOA+ reproducibility evidence</strong> — one-command replay of any historical run from its manifest.</li>
+<li><strong>Change-control</strong> — replay-gated CI (an upgrade must reproduce golden-set outputs).</li>
+</ol>
+<p><em>Exit:</em> any claim traceable to provenance · PHI cannot leave · every tool call auditable · validated replay reproduces any historical run.</p>
+<h3 id="sequencing">Sequencing<a class="headerlink" href="#sequencing" title="Permanent link">#</a></h3>
+<p>Phase 6 depends on Phase 5 (RBAC/egress/lineage assume the multi-node services + real ledger/CAS). Both are <strong>infrastructure/ops-heavy</strong> — the trait seams mean each is "add a production impl behind an existing trait," not a rewrite. Phase 6 items 2–3 have head starts from the prototype (ledger-in-loop, MCP audit log).</p>
+<div class="pager">
+<a class="prev" href="10-cold-compare.html"><span class="lbl">Previous</span><span class="ttl">Cold-start & SQLite</span></a>
+</div>
+</article>
+</main>
+</div>
+<script>
+function syncScrim(){document.querySelector('.scrim').classList.toggle('show',document.body.classList.contains('nav-open'));
+  document.getElementById('sidebar').classList.toggle('open',document.body.classList.contains('nav-open'));}
+new MutationObserver(syncScrim).observe(document.body,{attributes:true,attributeFilter:['class']});
+</script>
+<script src="assets/js/highlight.min.js"></script>
+<script src="assets/js/rust.min.js"></script>
+<script src="assets/js/mermaid.min.js"></script>
+<script>
+  document.querySelectorAll('pre code').forEach(function(el){ try{ hljs.highlightElement(el); }catch(e){} });
+  mermaid.initialize({
+    startOnLoad:true, securityLevel:'loose',
+    theme:'base',
+    themeVariables:{
+      darkMode:true, background:'#0c1726',
+      primaryColor:'#13233c', primaryTextColor:'#e6edf6', primaryBorderColor:'#2dd4bf',
+      lineColor:'#7dd3fc', secondaryColor:'#16243d', tertiaryColor:'#0e1b2e',
+      fontFamily:"'Segoe UI',system-ui,sans-serif", fontSize:'15px',
+      clusterBkg:'#0e1b2e', clusterBorder:'#2b405f',
+      actorBkg:'#13233c', actorBorder:'#2dd4bf', actorTextColor:'#e6edf6',
+      signalColor:'#9fb3c8', signalTextColor:'#cbd9ea', labelBoxBkgColor:'#13233c', labelBoxBorderColor:'#2b405f'
+    }
+  });
+</script>
+</body>
+</html>
