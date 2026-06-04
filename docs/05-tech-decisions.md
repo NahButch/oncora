@@ -85,6 +85,8 @@ Hybrid retrieval (canon Read path) fuses vector + graph + recency. The vector si
 
 **Decision.** `qdrant` for text/RAG, `lancedb` for multimodal/imaging, embedded `hnsw_rs`/`instant-distance` for dev only. Embeddings via `fastembed` (primary) or `candle` (fallback) — both behind `EmbeddingProvider`. All vector stores implement the `VectorStore` trait so the fusion layer in `oncora-retrieval` is store-agnostic.
 
+> **Implemented.** `oncora-retrieval` ships `QdrantVectorStore` (the official `qdrant-client` gRPC client) behind the `VectorStore` trait under `--features qdrant`, interchangeable with `InMemoryVectorStore`. Its live round-trip test starts qdrant in Docker via `testcontainers` and runs in the dedicated `qdrant-it` CI job. Unlike the in-process SQLite/rmcp seams, this one needs a Docker daemon, so it is **not** part of the default `cargo test`.
+
 ---
 
 ## 6. Biomolecular knowledge graph — the dual-store decision

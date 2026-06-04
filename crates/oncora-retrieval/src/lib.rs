@@ -18,6 +18,11 @@ use oncora_core::{
     EmbeddingProvider, GraphStore, OncoraError, Result, ScoredDoc, SourceRef, VectorStore,
 };
 
+#[cfg(feature = "qdrant")]
+mod qdrant_store;
+#[cfg(feature = "qdrant")]
+pub use qdrant_store::QdrantVectorStore;
+
 /// A deterministic, model-free embedder: hashes tokens into a fixed-width
 /// bag-of-words vector. Good enough to exercise retrieval end-to-end and fully
 /// reproducible; NOT semantically meaningful — replace with candle/fastembed.

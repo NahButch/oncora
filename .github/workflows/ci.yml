@@ -30,3 +30,19 @@ jobs:
         run: cargo test -p oncora-mcp-host --features rmcp
       - name: Build (release)
         run: cargo build --workspace --release
+
+  # Integration test that needs a real qdrant — testcontainers starts it in
+  # Docker (available on GitHub-hosted ubuntu runners). Kept in its own job so
+  # the core build stays free of any service dependency.
+  qdrant-it:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Clippy (qdrant feature)
+        run: cargo clippy -p oncora-retrieval --features qdrant --all-targets -- -D warnings
+      - name: Integration test (qdrant via testcontainers)
+        run: cargo test -p oncora-retrieval --features qdrant

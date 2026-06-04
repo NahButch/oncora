@@ -7,11 +7,21 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+# Real vector database via the official qdrant Rust client (gRPC). The live
+# round-trip test spins up qdrant in Docker via testcontainers.
+qdrant = ["dep:qdrant-client", "dep:testcontainers", "dep:serde_json"]
+
 [dependencies]
 oncora-core.workspace = true
 oncora-kg.workspace = true
 serde.workspace = true
 async-trait.workspace = true
 
+qdrant-client = { version = "1.18", optional = true }
+testcontainers = { version = "0.27", optional = true }
+serde_json = { workspace = true, optional = true }
+
 [dev-dependencies]
-tokio.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

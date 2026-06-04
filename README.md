@@ -46,6 +46,14 @@ trait — verified by an in-process loopback test:
 cargo test -p oncora-mcp-host --features rmcp                # MCP server + client loopback
 ```
 
+And the `VectorStore` seam swaps the in-memory store for a real **qdrant** cluster
+(`oncora-retrieval --features qdrant`). Its live round-trip test starts qdrant in Docker via
+`testcontainers`, so it needs a Docker daemon (it runs in CI):
+
+```bash
+cargo test -p oncora-retrieval --features qdrant             # needs Docker (testcontainers)
+```
+
 The `oncora-*` crates wire together behind the provider trait boundaries in
 `oncora-core` (`ModelProvider`, `VectorStore`, `GraphStore`, `MemoryStore`, `ToolHost`,
 `Calibrator`, `Verifier`, `ArtifactStore`, `EmbeddingProvider`). The walking skeleton ships
