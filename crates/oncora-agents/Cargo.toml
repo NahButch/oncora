@@ -52,6 +52,8 @@ oncora-retrieval = { workspace = true, features = ["qdrant"] }
 oncora-kg = { workspace = true, features = ["oxigraph"] }
 oncora-memory = { workspace = true, features = ["redb"] }
 oncora-mcp-host = { workspace = true, features = ["rmcp"] }
+# Ledger seam: both SQLite backends compiled so the bench picks one at runtime.
+oncora-ledger = { workspace = true, features = ["sqlite-c", "sqlite-rust"] }
 
 [[example]]
 name = "bench"

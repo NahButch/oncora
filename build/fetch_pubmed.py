@@ -10,12 +10,16 @@ import json, time, pathlib, urllib.parse, urllib.request, xml.etree.ElementTree 
 OUT = pathlib.Path("/home/tom_b/oncora-input-data")
 (OUT / "docs").mkdir(parents=True, exist_ok=True)
 EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
-TARGET = 1000
-PER_TOPIC = 200
+TARGET = 15000
+PER_TOPIC = 1500
 TOPICS = [
     "glioblastoma", "glioma", "glioblastoma immunotherapy", "IDH mutant glioma",
-    "astrocyte inflammation", "glial inflammation", "microglia neuroinflammation",
-    "reactive astrocytes neurodegeneration", "neuroinflammation",
+    "low grade glioma", "glioma stem cells", "glioblastoma temozolomide",
+    "brain tumor", "diffuse midline glioma", "oligodendroglioma",
+    "astrocyte", "microglia", "neuroinflammation", "astrocyte inflammation",
+    "glial inflammation", "microglia neuroinflammation",
+    "reactive astrocytes neurodegeneration", "neuroinflammation neurodegeneration",
+    "tumor microenvironment glioma", "blood brain barrier inflammation",
 ]
 
 def get(url):

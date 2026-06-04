@@ -22,12 +22,14 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use oncora_agents::{OpenAiEmbedder, OpenAiModel, Platform, run_target_discovery};
 use oncora_core::{
-    Claim, Confidence, EmbeddingProvider, Evidence, MemoryEntry, MemoryKey, MemoryKind, ProjectId,
-    Provenance, ScientistId, SourceRef, Triple, Verdict, WorkflowId,
+    Claim, Confidence, EmbeddingProvider, Evidence, LedgerRecord, LedgerStore, MemoryEntry,
+    MemoryKey, MemoryKind, ProjectId, Provenance, RunId, ScientistId, SourceRef, Triple, Verdict,
+    WorkflowId,
 };
 use oncora_kg::OxigraphGraphStore;
-use oncora_memory::RedbMemoryStore;
+use oncora_ledger::{InMemoryLedger, SqliteCLedger, SqliteRustLedger};
 use oncora_mcp_host::RmcpToolHost;
+use oncora_memory::RedbMemoryStore;
 use oncora_retrieval::QdrantVectorStore;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -114,6 +116,17 @@ async fn main() -> anyhow::Result<()> {
     let tools = RmcpToolHost::connect_loopback().await?;
     let model = OpenAiModel::new(&llm_url, "local", &chat_model);
 
+    // Ledger seam (provenance/audit): pick the SQLite backend at runtime so we
+    // can A/B C SQLite (rusqlite) vs pure-Rust SQLite (turso) under bulk load.
+    let ledger_kind = env_or("ONCORA_LEDGER", "sqlite-c");
+    let ledger_path = env_or("ONCORA_LEDGER_PATH", "/tmp/oncora-ledger.db");
+    let ledger: Box<dyn LedgerStore> = match ledger_kind.as_str() {
+        "sqlite-rust" => Box::new(SqliteRustLedger::open(&ledger_path).await?),
+        "sqlite-c" => Box::new(SqliteCLedger::open(&ledger_path)?),
+        _ => Box::new(InMemoryLedger::new()),
+    };
+    let run_id = RunId::random();
+
     let mut p = Platform::demo();
     p.embedder = Arc::new(embedder);
     p.vectors = Arc::new(qdrant);
@@ -129,10 +142,10 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // ---- ingest with per-component timing ----
-    let (mut t_embed, mut t_upsert, mut t_graph, mut t_mem) =
-        (vec![], vec![], vec![], vec![]);
+    let (mut t_embed, mut t_upsert, mut t_graph, mut t_mem, mut t_ledger) =
+        (vec![], vec![], vec![], vec![], vec![]);
     let ingest_start = Instant::now();
-    for r in &batch {
+    for (seq, r) in batch.iter().enumerate() {
         let t = Instant::now();
         let v = p.embedder.embed(&[r.text.clone()]).await?;
         t_embed.push(ms(t));
@@ -166,6 +179,21 @@ async fn main() -> anyhow::Result<()> {
             .write(MemoryEntry::new(key.clone(), MemoryKind::Episodic, ev))
             .await?;
         t_mem.push(ms(t));
+
+        // Provenance/audit ledger write (the SQLite backend under test).
+        let t = Instant::now();
+        let payload = format!("{{\"id\":\"{}\",\"topic\":\"{}\"}}", r.id, r.topic);
+        let ch = oncora_artifacts::hash_bytes(payload.as_bytes());
+        ledger
+            .append(LedgerRecord::new(
+                run_id.clone(),
+                (offset + seq) as i64,
+                "ingest",
+                payload,
+                ch,
+            ))
+            .await?;
+        t_ledger.push(ms(t));
     }
     let ingest_wall = ingest_start.elapsed().as_secs_f64();
 
@@ -200,6 +228,7 @@ async fn main() -> anyhow::Result<()> {
         "config": {
             "embed_model": embed_model, "chat_model": chat_model,
             "vector_dim": dim, "collection": collection, "redb": redb_path,
+            "ledger": ledger_kind,
         },
         "sample_size": batch.len(),
         "batch_offset": offset,
@@ -210,6 +239,7 @@ async fn main() -> anyhow::Result<()> {
             "vector_upsert_ms": metric(t_upsert),
             "graph_assert_ms": metric(t_graph),
             "memory_write_ms": metric(t_mem),
+            "ledger_write_ms": metric(t_ledger),
         },
         "query": {
             "n_queries": queries.len(),
@@ -231,13 +261,42 @@ async fn main() -> anyhow::Result<()> {
     }
 
     eprintln!("--- bench summary ---");
-    eprintln!("ingested {} docs in {:.2}s ({:.1} docs/s)", batch.len(), ingest_wall, batch.len() as f64 / ingest_wall);
-    eprintln!("embed     mean {} ms", report["ingest"]["embed_ms"]["mean_ms"]);
-    eprintln!("upsert    mean {} ms", report["ingest"]["vector_upsert_ms"]["mean_ms"]);
-    eprintln!("graph     mean {} ms", report["ingest"]["graph_assert_ms"]["mean_ms"]);
-    eprintln!("memory    mean {} ms", report["ingest"]["memory_write_ms"]["mean_ms"]);
-    eprintln!("q search  mean {} ms", report["query"]["vector_search_ms"]["mean_ms"]);
-    eprintln!("q e2e     mean {} ms (accept {:.0}%, conf {:.3})", report["query"]["end_to_end_ms"]["mean_ms"], accepts as f64 / queries.len() as f64 * 100.0, mean_conf);
+    eprintln!(
+        "ingested {} docs in {:.2}s ({:.1} docs/s)",
+        batch.len(),
+        ingest_wall,
+        batch.len() as f64 / ingest_wall
+    );
+    eprintln!(
+        "embed     mean {} ms",
+        report["ingest"]["embed_ms"]["mean_ms"]
+    );
+    eprintln!(
+        "upsert    mean {} ms",
+        report["ingest"]["vector_upsert_ms"]["mean_ms"]
+    );
+    eprintln!(
+        "graph     mean {} ms",
+        report["ingest"]["graph_assert_ms"]["mean_ms"]
+    );
+    eprintln!(
+        "memory    mean {} ms",
+        report["ingest"]["memory_write_ms"]["mean_ms"]
+    );
+    eprintln!(
+        "ledger    mean {} ms  [{}]",
+        report["ingest"]["ledger_write_ms"]["mean_ms"], ledger_kind
+    );
+    eprintln!(
+        "q search  mean {} ms",
+        report["query"]["vector_search_ms"]["mean_ms"]
+    );
+    eprintln!(
+        "q e2e     mean {} ms (accept {:.0}%, conf {:.3})",
+        report["query"]["end_to_end_ms"]["mean_ms"],
+        accepts as f64 / queries.len() as f64 * 100.0,
+        mean_conf
+    );
     eprintln!("stats -> {stats_out}");
     Ok(())
 }

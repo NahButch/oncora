@@ -2365,6 +2365,7 @@ dependencies = [
  "oncora-artifacts",
  "oncora-core",
  "oncora-kg",
+ "oncora-ledger",
  "oncora-mcp-host",
  "oncora-memory",
  "oncora-retrieval",
