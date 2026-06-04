@@ -29,6 +29,8 @@ oncora-mcp-host.workspace = true
 oncora-uncertainty.workspace = true
 oncora-artifacts.workspace = true
 oncora-telemetry.workspace = true
+# In-memory ledger by default (no native deps); the bench swaps in SQLite.
+oncora-ledger.workspace = true
 async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true

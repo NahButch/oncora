@@ -21,10 +21,12 @@ use std::sync::Arc;
 use oncora_artifacts::InMemoryArtifactStore;
 use oncora_core::{
     ArtifactStore, Calibrator, Claim, Confidence, EmbeddingProvider, Evidence, GraphStore,
-    MemoryEntry, MemoryKey, MemoryKind, MemoryStore, ModelProvider, Provenance, ReadQuery, Result,
-    RunId, SnapshotId, SourceRef, ToolHost, VectorStore, Verdict, Verifier,
+    LedgerRecord, LedgerStore, MemoryEntry, MemoryKey, MemoryKind, MemoryStore, ModelProvider,
+    Provenance, ReadQuery, Result, RunId, SnapshotId, SourceRef, ToolHost, VectorStore, Verdict,
+    Verifier,
 };
 use oncora_kg::InMemoryGraphStore;
+use oncora_ledger::InMemoryLedger;
 use oncora_mcp_host::{BsaCalculator, EchoTool, McpHost};
 use oncora_memory::InMemoryMemoryStore;
 use oncora_retrieval::{HashEmbedder, HybridRetriever, InMemoryVectorStore};
@@ -62,6 +64,8 @@ pub struct Platform {
     pub model: Arc<dyn ModelProvider>,
     pub calibrator: Arc<dyn Calibrator>,
     pub artifacts: Arc<InMemoryArtifactStore>,
+    /// Provenance/audit ledger — every run appends an outcome record.
+    pub ledger: Arc<dyn LedgerStore>,
     pub snapshot: SnapshotId,
     pub policy: AbstentionPolicy,
 }
@@ -85,6 +89,7 @@ impl Platform {
             model: Arc::new(TemplateModel::default()),
             calibrator: Arc::new(TemperatureCalibrator::new(1.5)),
             artifacts: Arc::new(InMemoryArtifactStore::new()),
+            ledger: Arc::new(InMemoryLedger::new()),
             snapshot: SnapshotId::new("snapshot-dev-0001"),
             policy: AbstentionPolicy::default(),
         }
@@ -236,9 +241,18 @@ async fn persist(
     evidence: &Evidence,
 ) -> Result<()> {
     // CAS the rendered answer for reproducible replay.
-    let _ = p
-        .artifacts
-        .put(serde_json::to_vec(answer)?.as_slice())
+    let bytes = serde_json::to_vec(answer)?;
+    let hash = p.artifacts.put(bytes.as_slice()).await?;
+
+    // Provenance/audit ledger: one append-only record per run (verdict + hash).
+    p.ledger
+        .append(LedgerRecord::new(
+            answer.run_id.clone(),
+            0,
+            format!("run:{}", answer.verdict.label()),
+            serde_json::to_string(answer)?,
+            hash,
+        ))
         .await?;
 
     p.memory

@@ -120,12 +120,15 @@ async fn main() -> anyhow::Result<()> {
     // can A/B C SQLite (rusqlite) vs pure-Rust SQLite (turso) under bulk load.
     let ledger_kind = env_or("ONCORA_LEDGER", "sqlite-c");
     let ledger_path = env_or("ONCORA_LEDGER_PATH", "/tmp/oncora-ledger.db");
-    let ledger: Box<dyn LedgerStore> = match ledger_kind.as_str() {
-        "sqlite-rust" => Box::new(SqliteRustLedger::open(&ledger_path).await?),
-        "sqlite-c" => Box::new(SqliteCLedger::open(&ledger_path)?),
-        _ => Box::new(InMemoryLedger::new()),
+    let ledger: Arc<dyn LedgerStore> = match ledger_kind.as_str() {
+        "sqlite-rust" => Arc::new(SqliteRustLedger::open(&ledger_path).await?),
+        "sqlite-c" => Arc::new(SqliteCLedger::open(&ledger_path)?),
+        _ => Arc::new(InMemoryLedger::new()),
     };
     let run_id = RunId::random();
+    // Embed this many texts per request so Ollama batch-processes them (uses
+    // otherwise-idle CPU cores) instead of one serial call per document.
+    let embed_batch: usize = env_or("ONCORA_EMBED_BATCH", "64").parse().unwrap_or(64);
 
     let mut p = Platform::demo();
     p.embedder = Arc::new(embedder);
@@ -134,6 +137,7 @@ async fn main() -> anyhow::Result<()> {
     p.memory = Arc::new(memory);
     p.tools = Arc::new(tools);
     p.model = Arc::new(model);
+    p.ledger = ledger; // wire the ledger into the agent loop too
 
     let key = MemoryKey {
         scientist: ScientistId::new("bench"),
@@ -145,55 +149,63 @@ async fn main() -> anyhow::Result<()> {
     let (mut t_embed, mut t_upsert, mut t_graph, mut t_mem, mut t_ledger) =
         (vec![], vec![], vec![], vec![], vec![]);
     let ingest_start = Instant::now();
-    for (seq, r) in batch.iter().enumerate() {
+    let mut seq = 0usize;
+    for chunk in batch.chunks(embed_batch) {
+        // Batched embedding: one request for the whole chunk.
+        let texts: Vec<String> = chunk.iter().map(|r| r.text.clone()).collect();
         let t = Instant::now();
-        let v = p.embedder.embed(&[r.text.clone()]).await?;
-        t_embed.push(ms(t));
+        let vecs = p.embedder.embed(&texts).await?;
+        let per_doc = ms(t) / chunk.len().max(1) as f64;
 
-        let t = Instant::now();
-        p.vectors
-            .upsert(
-                &r.id,
-                v[0].clone(),
-                r.text.clone(),
-                Some(SourceRef::new(r.id.clone()).with_title(r.title.clone())),
-            )
-            .await?;
-        t_upsert.push(ms(t));
+        for (j, r) in chunk.iter().enumerate() {
+            t_embed.push(per_doc);
 
-        let t = Instant::now();
-        p.graph
-            .assert(Triple::new(
-                r.topic.clone(),
-                "mentions",
-                r.id.clone(),
-                Confidence::new(0.5),
-            ))
-            .await?;
-        t_graph.push(ms(t));
+            let t = Instant::now();
+            p.vectors
+                .upsert(
+                    &r.id,
+                    vecs[j].clone(),
+                    r.text.clone(),
+                    Some(SourceRef::new(r.id.clone()).with_title(r.title.clone())),
+                )
+                .await?;
+            t_upsert.push(ms(t));
 
-        let t = Instant::now();
-        let prov = Provenance::new(p.model.model_pin(), p.snapshot.clone());
-        let ev = Evidence::new(Claim::new(r.title.clone()), Confidence::new(0.6), prov);
-        p.memory
-            .write(MemoryEntry::new(key.clone(), MemoryKind::Episodic, ev))
-            .await?;
-        t_mem.push(ms(t));
+            let t = Instant::now();
+            p.graph
+                .assert(Triple::new(
+                    r.topic.clone(),
+                    "mentions",
+                    r.id.clone(),
+                    Confidence::new(0.5),
+                ))
+                .await?;
+            t_graph.push(ms(t));
 
-        // Provenance/audit ledger write (the SQLite backend under test).
-        let t = Instant::now();
-        let payload = format!("{{\"id\":\"{}\",\"topic\":\"{}\"}}", r.id, r.topic);
-        let ch = oncora_artifacts::hash_bytes(payload.as_bytes());
-        ledger
-            .append(LedgerRecord::new(
-                run_id.clone(),
-                (offset + seq) as i64,
-                "ingest",
-                payload,
-                ch,
-            ))
-            .await?;
-        t_ledger.push(ms(t));
+            let t = Instant::now();
+            let prov = Provenance::new(p.model.model_pin(), p.snapshot.clone());
+            let ev = Evidence::new(Claim::new(r.title.clone()), Confidence::new(0.6), prov);
+            p.memory
+                .write(MemoryEntry::new(key.clone(), MemoryKind::Episodic, ev))
+                .await?;
+            t_mem.push(ms(t));
+
+            // Provenance/audit ledger write (the SQLite backend under test).
+            let t = Instant::now();
+            let payload = format!("{{\"id\":\"{}\",\"topic\":\"{}\"}}", r.id, r.topic);
+            let ch = oncora_artifacts::hash_bytes(payload.as_bytes());
+            p.ledger
+                .append(LedgerRecord::new(
+                    run_id.clone(),
+                    (offset + seq) as i64,
+                    "ingest",
+                    payload,
+                    ch,
+                ))
+                .await?;
+            t_ledger.push(ms(t));
+            seq += 1;
+        }
     }
     let ingest_wall = ingest_start.elapsed().as_secs_f64();
 
