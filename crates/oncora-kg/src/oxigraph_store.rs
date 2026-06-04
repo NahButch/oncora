@@ -31,16 +31,50 @@ fn storage(e: impl std::fmt::Display) -> OncoraError {
     OncoraError::Storage(format!("oxigraph: {e}"))
 }
 
-fn entity_iri(token: &str) -> Result<NamedNode> {
-    NamedNode::new(format!("{ENT}{token}")).map_err(storage)
-}
-fn pred_iri(token: &str) -> Result<NamedNode> {
-    NamedNode::new(format!("{PRED}{token}")).map_err(storage)
+/// Percent-encode a token so any string becomes a valid IRI path component
+/// (unreserved RFC 3986 chars pass through; everything else becomes `%XX`).
+fn enc(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
 }
 
-/// Strip a known IRI prefix back to the original token.
-fn strip<'a>(iri: &'a str, prefix: &str) -> &'a str {
-    iri.strip_prefix(prefix).unwrap_or(iri)
+/// Inverse of [`enc`].
+fn dec(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn entity_iri(token: &str) -> Result<NamedNode> {
+    NamedNode::new(format!("{ENT}{}", enc(token))).map_err(storage)
+}
+fn pred_iri(token: &str) -> Result<NamedNode> {
+    NamedNode::new(format!("{PRED}{}", enc(token))).map_err(storage)
+}
+
+/// Strip a known IRI prefix and percent-decode back to the original token.
+fn strip(iri: &str, prefix: &str) -> String {
+    dec(iri.strip_prefix(prefix).unwrap_or(iri))
 }
 
 /// Decode an Oxigraph quad back into our [`Triple`].
