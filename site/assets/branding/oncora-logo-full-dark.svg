@@ -1,0 +1,44 @@
+<svg width="680" height="320" viewBox="0 0 680 320" xmlns="http://www.w3.org/2000/svg">
+  
+
+  <g transform="translate(340,150)">
+    <!-- stacked publication sheets -->
+    <rect x="-30" y="-40" width="68" height="92" rx="4" fill="#f2f3f4" stroke="#9aa0a6" stroke-width="1.2"/>
+    <rect x="-40" y="-50" width="68" height="92" rx="4" fill="#ffffff" stroke="#5f6368" stroke-width="1.4"/>
+    <line x1="-30" y1="-32" x2="14" y2="-32" stroke="#c4c7cc" stroke-width="2.4" stroke-linecap="round"/>
+    <line x1="-30" y1="-18" x2="6" y2="-18" stroke="#c4c7cc" stroke-width="2.4" stroke-linecap="round"/>
+
+    <!-- irregular reddish tumor cell (up 10% more, left 5%) -->
+    <g transform="translate(-7,-11)">
+      <path d="M6 13
+               C 16 12, 24 18, 23 27
+               C 27 33, 21 42, 13 43
+               C 8 49, -3 47, -6 39
+               C -13 36, -11 26, -4 23
+               C -5 15, 0 13, 6 13 Z"
+            fill="#e8556b" stroke="#c0334a" stroke-width="1.3"/>
+      <circle cx="7" cy="31" r="6.5" fill="#c0334a"/>
+      <circle cx="5" cy="29" r="1.4" fill="#7a1326"/>
+      <circle cx="10" cy="33" r="1.4" fill="#7a1326"/>
+      <circle cx="8" cy="28" r="1.1" fill="#7a1326"/>
+    </g>
+
+    <!-- INFLOW (blue), 10% shorter, 3% right -->
+    <circle cx="-138" cy="3" r="4.5" fill="#1a73e8"/>
+    <line x1="-138" y1="3" x2="-61" y2="3" stroke="#1a73e8" stroke-width="3" stroke-linecap="round"/>
+    <polygon points="-59,-4 -45,3 -59,10" fill="#1a73e8" stroke="#1a73e8" stroke-width="2.4" stroke-linejoin="round"/>
+
+    <!-- OUTFLOWS (50% longer again) -->
+    <line x1="45" y1="-1" x2="92" y2="-15" stroke="#1e8e3e" stroke-width="3" stroke-linecap="round"/>
+    <polygon points="88,-21 103,-16 91,-7" fill="#1e8e3e" stroke="#1e8e3e" stroke-width="1.8" stroke-linejoin="round"/>
+
+    <line x1="45" y1="5" x2="94" y2="5" stroke="#1e8e3e" stroke-width="3" stroke-linecap="round"/>
+    <polygon points="94,-1 108,5 94,11" fill="#1e8e3e" stroke="#1e8e3e" stroke-width="1.8" stroke-linejoin="round"/>
+
+    <line x1="45" y1="11" x2="92" y2="25" stroke="#1e8e3e" stroke-width="3" stroke-linecap="round"/>
+    <polygon points="91,17 105,26 89,31" fill="#1e8e3e" stroke="#1e8e3e" stroke-width="1.8" stroke-linejoin="round"/>
+  </g>
+
+  <text x="340" y="248" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="34" font-weight="500" fill="#e8eaed">Oncora</text>
+  <text x="340" y="278" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#9aa0a6">reproducible · uncertainty-aware · oncology reasoning</text>
+</svg>

@@ -1,7 +1,8 @@
-# Oncora
-
 <p align="center">
-  <img src="site/assets/svg/hero-overview.svg" alt="Public oncology publications and multimodal data flow into the Oncora engine — ingestion, embeddings, hybrid retrieval, knowledge graph, agent memory, agent runtime and an uncertainty layer — then out to vector and graph databases, an on-prem AI model, and a cited, confidence-scored answer for the scientist." width="100%"/>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/NahButch/oncora/raw/main/site/assets/branding/oncora-logo-full-dark.svg">
+    <img alt="Oncora" src="https://github.com/NahButch/oncora/raw/main/site/assets/branding/oncora-logo-full.svg" width="360">
+  </picture>
 </p>
 
 **Oncora — A Reproducible, Uncertainty-Aware Agentic Reasoning Platform for Oncology Drug Discovery.**
@@ -13,6 +14,10 @@ What makes Oncora different from a generic RAG chatbot is built into its archite
 - **Reproducibility** — pinned models, pinned data snapshots, content-addressed artifacts (BLAKE3), and deterministic replay of any run.
 - **Provenance on every claim** — each conclusion is traceable to its sources, tool calls, model pin, and data snapshot.
 - **Typed, calibrated uncertainty** — confidence is a first-class value that flows through the system; agents **abstain or escalate** rather than confabulate.
+
+<p align="center">
+  <img src="https://github.com/NahButch/oncora/raw/main/site/assets/svg/hero-overview.svg" alt="Public oncology publications and multimodal data flow into the Oncora engine — ingestion, embeddings, hybrid retrieval, knowledge graph, agent memory, agent runtime and an uncertainty layer — then out to vector and graph databases, an on-prem AI model, and a cited, confidence-scored answer for the scientist." width="100%"/>
+</p>
 
 > **Status: a well-tested, end-to-end functional prototype** (held here intentionally — it
 > demonstrates the architecture sufficiently). Every external dependency sits behind a swappable
