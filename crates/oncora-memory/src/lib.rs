@@ -9,6 +9,7 @@
 //! onto engines (redb for working/episodic, cozo+oxigraph for semantic, a
 //! Postgres ledger for provenance) — all behind the same trait.
 
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
@@ -22,11 +23,27 @@ pub use redb_store::RedbMemoryStore;
 /// Floor below which an entry is considered forgotten (tombstoned).
 const DECAY_FLOOR: f64 = 0.05;
 
+/// Deduplication key: same scope + kind + claim text => the same logical fact.
+/// Used to make `write` O(1) instead of scanning every entry.
+pub(crate) fn dedup_key(e: &MemoryEntry) -> String {
+    format!(
+        "{}|{}|{}|{:?}|{}",
+        e.key.scientist, e.key.project, e.key.workflow, e.kind, e.evidence.claim.text
+    )
+}
+
+#[derive(Default)]
+struct Inner {
+    entries: HashMap<MemoryId, MemoryEntry>,
+    /// dedup key -> entry id (O(1) write-path consolidation).
+    dedup: HashMap<String, MemoryId>,
+}
+
 /// In-memory reference [`MemoryStore`] implementing a simplified version of the
-/// documented write and read paths.
+/// documented write and read paths, with an O(1) dedup index.
 #[derive(Default)]
 pub struct InMemoryMemoryStore {
-    entries: Mutex<Vec<MemoryEntry>>,
+    inner: Mutex<Inner>,
 }
 
 impl InMemoryMemoryStore {
@@ -35,7 +52,7 @@ impl InMemoryMemoryStore {
     }
 
     pub fn len(&self) -> usize {
-        self.entries.lock().map(|g| g.len()).unwrap_or(0)
+        self.inner.lock().map(|g| g.entries.len()).unwrap_or(0)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -50,28 +67,28 @@ impl MemoryStore for InMemoryMemoryStore {
     /// implementation adds embedding/KG entity resolution and conflict
     /// resolution that retains contradictions as competing evidence.
     async fn write(&self, entry: MemoryEntry) -> Result<MemoryId> {
-        let mut guard = self
-            .entries
+        let key = dedup_key(&entry);
+        let mut g = self
+            .inner
             .lock()
             .map_err(|_| OncoraError::Storage("memory lock poisoned".into()))?;
 
-        if let Some(existing) = guard.iter_mut().find(|e| {
-            e.key == entry.key
-                && e.kind == entry.kind
-                && e.evidence.claim.text == entry.evidence.claim.text
-                && !e.tombstoned
-        }) {
-            // Conflict resolution: keep the more confident assertion, but
-            // reinforce (do not lose) the existing one.
-            existing.decay_score = (existing.decay_score + 0.25).min(1.0);
-            if entry.evidence.confidence.get() > existing.evidence.confidence.get() {
-                existing.evidence = entry.evidence;
+        // O(1) dedup: consolidate onto an existing, non-tombstoned equal claim.
+        if let Some(id) = g.dedup.get(&key).cloned() {
+            if let Some(existing) = g.entries.get_mut(&id) {
+                if !existing.tombstoned {
+                    existing.decay_score = (existing.decay_score + 0.25).min(1.0);
+                    if entry.evidence.confidence.get() > existing.evidence.confidence.get() {
+                        existing.evidence = entry.evidence;
+                    }
+                    return Ok(id);
+                }
             }
-            return Ok(existing.id.clone());
         }
 
         let id = entry.id.clone();
-        guard.push(entry);
+        g.dedup.insert(key, id.clone());
+        g.entries.insert(id.clone(), entry);
         Ok(id)
     }
 
@@ -80,13 +97,14 @@ impl MemoryStore for InMemoryMemoryStore {
     /// of relevance + recency/decay and truncate to the budget.
     async fn read(&self, query: ReadQuery) -> Result<Vec<MemoryEntry>> {
         let guard = self
-            .entries
+            .inner
             .lock()
             .map_err(|_| OncoraError::Storage("memory lock poisoned".into()))?;
 
         let needle = query.text.as_deref().map(str::to_lowercase);
         let mut scored: Vec<(f64, MemoryEntry)> = guard
-            .iter()
+            .entries
+            .values()
             .filter(|e| e.key == query.key && !e.tombstoned)
             .map(|e| {
                 let relevance = match &needle {
@@ -116,12 +134,12 @@ impl MemoryStore for InMemoryMemoryStore {
     /// Forgetting: soft-delete via tombstone; provenance is retained.
     async fn forget(&self, id: &MemoryId) -> Result<()> {
         let mut guard = self
-            .entries
+            .inner
             .lock()
             .map_err(|_| OncoraError::Storage("memory lock poisoned".into()))?;
         let e = guard
-            .iter_mut()
-            .find(|e| &e.id == id)
+            .entries
+            .get_mut(id)
             .ok_or_else(|| OncoraError::NotFound(format!("memory {id}")))?;
         e.tombstoned = true;
         e.decay_score = DECAY_FLOOR;
@@ -133,8 +151,8 @@ impl MemoryStore for InMemoryMemoryStore {
 /// fall below [`DECAY_FLOOR`]. Episodic and provenance memory are exempt
 /// (immutable by design).
 pub fn apply_decay(store: &InMemoryMemoryStore, factor: f64) {
-    if let Ok(mut guard) = store.entries.lock() {
-        for e in guard.iter_mut() {
+    if let Ok(mut guard) = store.inner.lock() {
+        for e in guard.entries.values_mut() {
             if matches!(e.kind, MemoryKind::Episodic | MemoryKind::Provenance) {
                 continue;
             }

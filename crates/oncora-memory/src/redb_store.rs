@@ -15,6 +15,8 @@ use oncora_core::{MemoryEntry, MemoryId, MemoryStore, OncoraError, ReadQuery, Re
 use redb::{Database, ReadableTable, TableDefinition};
 
 const ENTRIES: TableDefinition<&str, &[u8]> = TableDefinition::new("memory_entries");
+/// Dedup index: `dedup_key` -> entry id, so the write path is O(1).
+const DEDUP: TableDefinition<&str, &str> = TableDefinition::new("memory_dedup");
 
 fn stor(e: impl std::fmt::Display) -> OncoraError {
     OncoraError::Storage(format!("redb: {e}"))
@@ -31,6 +33,7 @@ impl RedbMemoryStore {
         let w = db.begin_write().map_err(stor)?;
         {
             w.open_table(ENTRIES).map_err(stor)?;
+            w.open_table(DEDUP).map_err(stor)?;
         }
         w.commit().map_err(stor)?;
         Ok(Self { db })
@@ -66,32 +69,56 @@ impl RedbMemoryStore {
 #[async_trait]
 impl MemoryStore for RedbMemoryStore {
     async fn write(&self, entry: MemoryEntry) -> Result<MemoryId> {
-        // Conflict resolution: reinforce/upgrade an existing equal claim,
-        // otherwise insert. (Scan to find a duplicate before mutating.)
-        let dup = self.all_entries()?.into_iter().find(|(_, e)| {
-            e.key == entry.key
-                && e.kind == entry.kind
-                && e.evidence.claim.text == entry.evidence.claim.text
-                && !e.tombstoned
-        });
-
+        let key = crate::dedup_key(&entry);
         let wtx = self.db.begin_write().map_err(stor)?;
         let id = {
-            let mut table = wtx.open_table(ENTRIES).map_err(stor)?;
-            match dup {
-                Some((id, mut existing)) => {
-                    existing.decay_score = (existing.decay_score + 0.25).min(1.0);
-                    if entry.evidence.confidence.get() > existing.evidence.confidence.get() {
-                        existing.evidence = entry.evidence;
+            // O(1) dedup lookup via the index table.
+            let existing_id = {
+                let dtab = wtx.open_table(DEDUP).map_err(stor)?;
+                dtab.get(key.as_str())
+                    .map_err(stor)?
+                    .map(|v| v.value().to_string())
+            };
+            let mut entries = wtx.open_table(ENTRIES).map_err(stor)?;
+            let mut dedup = wtx.open_table(DEDUP).map_err(stor)?;
+
+            let reused = match &existing_id {
+                Some(eid) => {
+                    // Copy out the stored bytes so the read borrow ends before insert.
+                    let cur_bytes = entries
+                        .get(eid.as_str())
+                        .map_err(stor)?
+                        .map(|v| v.value().to_vec());
+                    match cur_bytes {
+                        Some(bytes) => {
+                            let mut e: MemoryEntry = serde_json::from_slice(&bytes)?;
+                            if e.tombstoned {
+                                None
+                            } else {
+                                e.decay_score = (e.decay_score + 0.25).min(1.0);
+                                if entry.evidence.confidence.get() > e.evidence.confidence.get() {
+                                    e.evidence = entry.evidence.clone();
+                                }
+                                let out = serde_json::to_vec(&e)?;
+                                entries.insert(eid.as_str(), out.as_slice()).map_err(stor)?;
+                                Some(MemoryId::new(eid.clone()))
+                            }
+                        }
+                        None => None,
                     }
-                    let bytes = serde_json::to_vec(&existing)?;
-                    table.insert(id.as_str(), bytes.as_slice()).map_err(stor)?;
-                    MemoryId::new(id)
                 }
+                None => None,
+            };
+
+            match reused {
+                Some(id) => id,
                 None => {
                     let bytes = serde_json::to_vec(&entry)?;
-                    table
+                    entries
                         .insert(entry.id.as_str(), bytes.as_slice())
+                        .map_err(stor)?;
+                    dedup
+                        .insert(key.as_str(), entry.id.as_str())
                         .map_err(stor)?;
                     entry.id.clone()
                 }
