@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://github.com/NahButch/oncora/raw/main/site/assets/branding/oncora-logo-full-dark.svg">
-    <img alt="Oncora" src="https://github.com/NahButch/oncora/raw/main/site/assets/branding/oncora-logo-full.svg" width="360">
+    <img alt="Oncora" src="https://github.com/NahButch/oncora/raw/main/site/assets/branding/oncora-logo-full.svg" width="720">
   </picture>
 </p>
 
