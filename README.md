@@ -54,6 +54,18 @@ And the `VectorStore` seam swaps the in-memory store for a real **qdrant** clust
 cargo test -p oncora-retrieval --features qdrant             # needs Docker (testcontainers)
 ```
 
+The whole agent loop then runs **against that real qdrant** — same `Platform`, only the
+`VectorStore` swapped — ingesting a corpus, retrieving from qdrant, and returning a cited,
+confidence-scored answer:
+
+```bash
+docker run -d -p 6334:6334 qdrant/qdrant:v1.12.4
+ONCORA_QDRANT_URL=http://127.0.0.1:6334 \
+  cargo test -p oncora-agents --features qdrant -- --nocapture
+# answer: NSCLC is the best-supported answer (agreement 100%, 2 sources)
+# confidence: 0.935 · verdict: accept · citations: [PMID:0001, PMID:0002]
+```
+
 The `oncora-*` crates wire together behind the provider trait boundaries in
 `oncora-core` (`ModelProvider`, `VectorStore`, `GraphStore`, `MemoryStore`, `ToolHost`,
 `Calibrator`, `Verifier`, `ArtifactStore`, `EmbeddingProvider`). The walking skeleton ships

@@ -7,6 +7,11 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+# Run the agent loop against a real qdrant-backed VectorStore (E2E test).
+qdrant = ["oncora-retrieval/qdrant"]
+
 [dependencies]
 oncora-core.workspace = true
 oncora-memory.workspace = true

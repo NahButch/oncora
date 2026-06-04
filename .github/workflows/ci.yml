@@ -43,6 +43,12 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - name: Clippy (qdrant feature)
-        run: cargo clippy -p oncora-retrieval --features qdrant --all-targets -- -D warnings
+        run: |
+          cargo clippy -p oncora-retrieval --features qdrant --all-targets -- -D warnings
+          cargo clippy -p oncora-agents --features qdrant --tests -- -D warnings
       - name: Integration test (qdrant via testcontainers)
         run: cargo test -p oncora-retrieval --features qdrant
+      - name: Agent E2E against real qdrant
+        run: |
+          docker run -d --name qdrant -p 6334:6334 qdrant/qdrant:v1.12.4
+          ONCORA_QDRANT_URL=http://127.0.0.1:6334 cargo test -p oncora-agents --features qdrant -- --nocapture
