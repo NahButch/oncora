@@ -11,8 +11,13 @@ repository.workspace = true
 default = []
 # Run the agent loop against a real qdrant-backed VectorStore (E2E test).
 qdrant = ["oncora-retrieval/qdrant"]
-# Real LLM inference via an OpenAI-compatible endpoint (Ollama, vLLM, TGI).
+# Real LLM inference + embeddings via an OpenAI-compatible endpoint (Ollama, vLLM, TGI).
 openai = ["dep:async-openai"]
+# Real graph backend (Oxigraph) and real MCP tool host (rmcp).
+oxigraph-graph = ["oncora-kg/oxigraph"]
+rmcp-tools = ["oncora-mcp-host/rmcp"]
+# Everything real at once: embeddings + vectors + graph + tools + model.
+e2e = ["qdrant", "openai", "oxigraph-graph", "rmcp-tools"]
 
 [dependencies]
 oncora-core.workspace = true
@@ -32,6 +37,7 @@ tracing.workspace = true
 # client/config/chat types (via `_api`); `rustls` wires reqwest's TLS backend.
 async-openai = { version = "0.40", default-features = false, features = [
     "chat-completion",
+    "embedding",
     "rustls",
 ], optional = true }
 

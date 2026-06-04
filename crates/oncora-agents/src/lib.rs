@@ -14,7 +14,7 @@
 pub mod model;
 
 #[cfg(feature = "openai")]
-pub use model::OpenAiModel;
+pub use model::{OpenAiEmbedder, OpenAiModel};
 
 use std::sync::Arc;
 

@@ -38,6 +38,13 @@ pub struct BsaParams {
     pub weight_kg: f64,
 }
 
+/// Parameters for the echo grounding tool.
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct EchoParams {
+    /// The value to echo back (a placeholder grounding check).
+    pub grounding_check: String,
+}
+
 /// An `rmcp` MCP server exposing Oncora's deterministic tools.
 #[derive(Clone)]
 pub struct OncoraMcpServer;
@@ -56,6 +63,13 @@ impl OncoraMcpServer {
         let bsa = ((height_cm * weight_kg) / 3600.0).sqrt();
         let bsa = (bsa * 1000.0).round() / 1000.0;
         format!("{{\"bsa_m2\":{bsa}}}")
+    }
+
+    /// Echo a value back — a placeholder oracle-grounding tool the agent calls
+    /// to exercise an audited MCP round-trip.
+    #[tool(description = "Echo a grounding-check value")]
+    fn echo(&self, Parameters(EchoParams { grounding_check }): Parameters<EchoParams>) -> String {
+        grounding_check
     }
 }
 

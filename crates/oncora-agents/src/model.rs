@@ -51,7 +51,7 @@ impl ModelProvider for TemplateModel {
 /// (Ollama, vLLM, TGI). Requests use `temperature = 0` so repeated calls are
 /// deterministic — self-consistency stays meaningful and runs stay replayable.
 #[cfg(feature = "openai")]
-pub use openai::OpenAiModel;
+pub use openai::{OpenAiEmbedder, OpenAiModel};
 
 #[cfg(feature = "openai")]
 mod openai {
@@ -60,8 +60,9 @@ mod openai {
     use async_openai::types::chat::{
         ChatCompletionRequestUserMessageArgs, CreateChatCompletionRequestArgs,
     };
+    use async_openai::types::embeddings::CreateEmbeddingRequestArgs;
     use async_trait::async_trait;
-    use oncora_core::{ModelPin, ModelProvider, OncoraError, Result};
+    use oncora_core::{EmbeddingProvider, ModelPin, ModelProvider, OncoraError, Result};
 
     /// Talks to an OpenAI-compatible chat-completions API.
     pub struct OpenAiModel {
@@ -127,6 +128,67 @@ mod openai {
                 .unwrap_or_default()
                 .trim()
                 .to_string())
+        }
+    }
+
+    /// A real [`EmbeddingProvider`] backed by the same OpenAI-compatible
+    /// endpoint (e.g. Ollama serving `all-minilm` / `nomic-embed-text`).
+    pub struct OpenAiEmbedder {
+        client: Client<OpenAIConfig>,
+        model: String,
+        dims: usize,
+    }
+
+    impl OpenAiEmbedder {
+        /// Connect and probe the embedding dimensionality once (so callers can
+        /// size a vector collection to match).
+        pub async fn connect(base_url: &str, api_key: &str, model: &str) -> Result<Self> {
+            let config = OpenAIConfig::new()
+                .with_api_base(base_url)
+                .with_api_key(api_key);
+            let mut me = Self {
+                client: Client::with_config(config),
+                model: model.to_string(),
+                dims: 0,
+            };
+            let probe = me.embed(&["dimension probe".to_string()]).await?;
+            me.dims = probe.first().map(|v| v.len()).unwrap_or(0);
+            if me.dims == 0 {
+                return Err(OncoraError::Provider("openai: empty embedding".into()));
+            }
+            Ok(me)
+        }
+
+        /// Build from `ONCORA_OPENAI_URL` (+ optional `ONCORA_OPENAI_KEY`,
+        /// `ONCORA_EMBED_MODEL`); returns `None` if the URL is unset.
+        pub async fn from_env() -> Option<Result<Self>> {
+            let url = std::env::var("ONCORA_OPENAI_URL").ok()?;
+            let key = std::env::var("ONCORA_OPENAI_KEY").unwrap_or_else(|_| "local".to_string());
+            let model =
+                std::env::var("ONCORA_EMBED_MODEL").unwrap_or_else(|_| "all-minilm".to_string());
+            Some(Self::connect(&url, &key, &model).await)
+        }
+    }
+
+    #[async_trait]
+    impl EmbeddingProvider for OpenAiEmbedder {
+        fn dims(&self) -> usize {
+            self.dims
+        }
+
+        async fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+            let request = CreateEmbeddingRequestArgs::default()
+                .model(&self.model)
+                .input(texts.to_vec())
+                .build()
+                .map_err(provider)?;
+            let response = self
+                .client
+                .embeddings()
+                .create(request)
+                .await
+                .map_err(provider)?;
+            Ok(response.data.into_iter().map(|e| e.embedding).collect())
         }
     }
 }

@@ -85,6 +85,27 @@ ONCORA_OPENAI_URL=http://127.0.0.1:11434/v1 ONCORA_OPENAI_MODEL=qwen2.5:0.5b \
 # confidence: 0.855 · verdict: accept · model: openai/qwen2.5:0.5b@live · citations: [PMID:0001, PMID:0002]
 ```
 
+### True end-to-end — every external seam real at once
+
+The `e2e` feature assembles a `Platform` where **all five external providers are real
+simultaneously** — real embeddings (Ollama) → qdrant (vectors) + oxigraph (graph) → rmcp
+(tools) → Ollama (LLM) — and runs the whole target-discovery loop over them:
+
+```bash
+docker run -d -p 11434:11434 ollama/ollama
+docker exec <id> ollama pull qwen2.5:0.5b && docker exec <id> ollama pull all-minilm
+docker run -d -p 6334:6334 qdrant/qdrant:v1.12.4
+ONCORA_OPENAI_URL=http://127.0.0.1:11434/v1 ONCORA_QDRANT_URL=http://127.0.0.1:6334 \
+  cargo test -p oncora-agents --features e2e -- --nocapture
+# real embedding dim: 384
+# top vector hits: [(PMID:0001, 0.365), (PMID:0002, 0.225), (PMID:0003, 0.167)]  ← real semantic ranking
+# answer: "Yes, EGFR is considered a driver gene in NSCLC ..." (real model)
+# confidence: 0.920 · verdict: accept · tools: [echo (over MCP)] · citations: [knowledge-graph, PMID:0001, ...]
+```
+
+This is the architecture's thesis demonstrated: the agent runtime never changed across any of
+these swaps — only the concrete backends behind the `oncora-core` traits did.
+
 The `oncora-*` crates wire together behind the provider trait boundaries in
 `oncora-core` (`ModelProvider`, `VectorStore`, `GraphStore`, `MemoryStore`, `ToolHost`,
 `Calibrator`, `Verifier`, `ArtifactStore`, `EmbeddingProvider`). The walking skeleton ships

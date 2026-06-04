@@ -30,10 +30,12 @@ jobs:
         run: cargo test -p oncora-mcp-host --features rmcp
       - name: Test graph backend (oxigraph)
         run: cargo test -p oncora-kg --features oxigraph
-      # Compile-only: the live LLM E2E needs an Ollama server + a model pull
-      # (multi-GB), too heavy for default CI. It runs locally / on demand.
+      # Compile-only: the live LLM/E2E tests need an Ollama server + model pulls
+      # (multi-GB), too heavy for default CI. They run locally / on demand.
       - name: Build model provider (openai feature)
         run: cargo clippy -p oncora-agents --features openai --tests -- -D warnings
+      - name: Build all-real E2E (e2e feature)
+        run: cargo clippy -p oncora-agents --features e2e --tests -- -D warnings
       - name: Build (release)
         run: cargo build --workspace --release
 
