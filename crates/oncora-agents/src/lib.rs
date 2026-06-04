@@ -64,7 +64,9 @@ pub struct Platform {
     pub model: Arc<dyn ModelProvider>,
     pub calibrator: Arc<dyn Calibrator>,
     pub artifacts: Arc<InMemoryArtifactStore>,
-    /// Provenance/audit ledger — every run appends an outcome record.
+    /// Provenance/audit ledger — every run appends an outcome record. The
+    /// demo uses an in-memory ledger; the chosen real backend is pure-Rust
+    /// SQLite (`turso`), swapped in behind this trait (see docs/05).
     pub ledger: Arc<dyn LedgerStore>,
     pub snapshot: SnapshotId,
     pub policy: AbstentionPolicy,

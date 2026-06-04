@@ -305,7 +305,7 @@
 </table></div>
 <p><strong>Decision.</strong> Dual store: <code>oxigraph</code> for the ontology layer (SPARQL over imported RDF), <code>cozo</code> for the evidence/assertion graph (Datalog + time-travel + per-edge confidence + vector), <code>indradb</code> as the evidence-graph fallback, Jena rejected for the JVM. Both stores are concrete <code>GraphStore</code> impls. Full schema and entity/edge model in <a href="04-knowledge-and-data.html">04-knowledge-and-data.md</a>.</p>
 <blockquote>
-<p><strong>Implemented (oxigraph) + finding on cozo.</strong> <code>oncora-kg</code> ships <code>OxigraphGraphStore</code> behind the <code>GraphStore</code> trait under <code>--features oxigraph</code> (pure-Rust in-memory RDF quad store; <code>default-features = false</code> keeps RocksDB out). It passes the same conformance test as <code>InMemoryGraphStore</code>, with per-edge <strong>confidence</strong> carried in the quad's named-graph component (<code>urn:oncora:conf:&lt;v&gt;</code>). <strong>cozo is deferred</strong>, not for capability but for two concrete build-integration reasons discovered while wiring it: (1) cozo's <code>minimal</code> feature pulls native SQLite (<code>storage-sqlite</code> → <code>sqlite3-src</code>), which <strong><code>links</code>-clashes</strong> with the ledger's <code>rusqlite</code> (both claim the native <code>sqlite3</code> lib — Cargo forbids two such packages in one workspace); and (2) the only way to get the in-memory engine without SQLite (<code>graph-algo</code>) pulls <code>graph_builder 0.4.1</code>, which does not compile against current <code>rayon</code>. Re-evaluate cozo when these upstream issues resolve (newer cozo with a true mem-only feature, or running cozo in its own process behind the trait). The <code>GraphStore</code> seam means this swap costs nothing downstream.</p>
+<p><strong>Implemented (oxigraph) + finding on cozo.</strong> <code>oncora-kg</code> ships <code>OxigraphGraphStore</code> behind the <code>GraphStore</code> trait under <code>--features oxigraph</code> (pure-Rust in-memory RDF quad store; <code>default-features = false</code> keeps RocksDB out). It passes the same conformance test as <code>InMemoryGraphStore</code>, with per-edge <strong>confidence</strong> carried in the quad's named-graph component (<code>urn:oncora:conf:&lt;v&gt;</code>). <strong>cozo is deferred</strong> for build-integration reasons, not capability. Originally there were two independent blockers: (1) cozo's <code>minimal</code> feature pulls native SQLite (<code>storage-sqlite</code> → <code>sqlite3-src</code>), which <strong><code>links</code>-clashed</strong> with the C-SQLite ledger (<code>rusqlite</code>); and (2) the only way to get the in-memory engine without SQLite (<code>graph-algo</code>) pulls <code>graph_builder 0.4.1</code>, which does not compile against current <code>rayon</code>. <strong>Choosing turso for the ledger removes blocker (1)</strong> — with C SQLite gated to a benchmark-only feature, nothing else links native <code>sqlite3</code>, so the <code>links</code> collision is gone. <strong>Blocker (2) remains</strong>: cozo still needs <code>rayon</code> (only reachable via <code>graph-algo</code> → <code>graph_builder 0.4.1</code>), so it won't compile until that's pinned/patched or fixed upstream. Re-evaluate then, or run cozo in its own process behind the <code>GraphStore</code> trait. The seam means the swap costs nothing downstream.</p>
 </blockquote>
 <hr />
 <h2 id="7-omics-tabular-analytics">7. Omics &amp; tabular analytics<a class="headerlink" href="#7-omics-tabular-analytics" title="Permanent link">#</a></h2>
@@ -413,21 +413,21 @@
 <td>Mature. <strong>Verify</strong>: migration discipline and that compile-time query checking is wired into CI.</td>
 </tr>
 <tr>
-<td>SQLite — <strong>C library</strong> (<code>rusqlite</code>, <code>bundled</code>)</td>
-<td><strong>Fallback (dev relational)</strong></td>
-<td>Single-file DB for the dev profile. The upstream <strong>C</strong> SQLite amalgamation compiled and linked into the binary — a non-Rust dependency isolated behind the <code>LedgerStore</code> seam (see §Non-Rust isolation).</td>
-<td>Dev/single-node only; production ledger is Postgres for HA.</td>
-</tr>
-<tr>
 <td>SQLite — <strong>pure Rust</strong> (<code>turso</code>, ex-<code>limbo</code>)</td>
-<td><strong>Fallback (dev relational, Rust-native)</strong></td>
-<td>Same <code>LedgerStore</code> trait, same SQL schema, no C in the build. The Rust-native end-state for the embedded relational slot.</td>
-<td><code>turso</code> 0.6 is young/pre-1.0 — <strong>verify</strong> feature coverage before relying on it for anything beyond the dev ledger.</td>
+<td><strong>CHOSEN (dev relational / ledger)</strong></td>
+<td>The Rust-native embedded relational/ledger backend — no C in the build. Validated at scale: 14,469 sequential per-document writes, <strong>0 errors, mean 2.04 ms — ~23% faster than the C amalgamation</strong> (see <a href="10-cold-compare.html">10-cold-compare.md</a>). Default for <code>oncora-ledger</code> and the bench.</td>
+<td><code>turso</code> is young/pre-1.0 — <strong>verify</strong> transactions/concurrency/SQL coverage before depending on it past the dev ledger; Postgres remains the HA production path.</td>
 </tr>
 <tr>
-<td><strong>C ↔ Rust SQLite swap</strong></td>
-<td><strong>Implemented + tested</strong></td>
-<td>Both backends live in <code>crates/oncora-ledger</code> behind one <code>LedgerStore</code> trait; an identical conformance test passes against in-memory, C SQLite, and pure-Rust SQLite (<code>cargo test -p oncora-ledger --features "sqlite-c sqlite-rust"</code>). This is the runnable form of the migration spike in <a href="08-roadmap.html">08-roadmap.md</a>.</td>
+<td>SQLite — <strong>C library</strong> (<code>rusqlite</code>, <code>bundled</code>)</td>
+<td><strong>Benchmark-only (gated)</strong></td>
+<td>Retained behind <code>--features sqlite-c</code> solely to reproduce the C-vs-Rust comparison. Not the default; pulls the native <code>sqlite3</code> amalgamation.</td>
+<td>Kept opt-in so the default build stays pure-Rust and free of the native-<code>sqlite3</code> <code>links</code> constraint.</td>
+</tr>
+<tr>
+<td><strong>C ↔ Rust SQLite</strong></td>
+<td><strong>Decided: Rust (turso)</strong></td>
+<td>Both backends live in <code>crates/oncora-ledger</code> behind one <code>LedgerStore</code> trait; an identical conformance test passes for in-memory, C SQLite, and turso (<code>cargo test -p oncora-ledger --features "sqlite-c sqlite-rust"</code>). The cold-start bulk comparison settled it in turso's favour.</td>
 <td>Default workspace build stays pure-Rust + fast (backends are opt-in Cargo features).</td>
 </tr>
 <tr>
@@ -444,7 +444,7 @@
 </tr>
 </tbody>
 </table></div>
-<p><strong>Decision.</strong> <code>redb</code> for embedded KV/log (fallback <code>fjall</code>), <code>sled</code> rejected for flux; <code>sqlx</code>+Postgres for the provenance ledger (SQLite for dev); <code>foundationdb</code> optional and phase-gated; <code>pgvector</code> optional, never the primary vector store. All implement <code>MemoryStore</code> / back the provenance ledger described in <a href="02-memory.html">02-memory.md</a>.</p>
+<p><strong>Decision.</strong> <code>redb</code> for embedded KV/log (fallback <code>fjall</code>), <code>sled</code> rejected for flux; <strong>pure-Rust SQLite (<code>turso</code>)</strong> for the embedded dev/relational ledger (validated faster than C SQLite at 14.5k writes), with <code>sqlx</code>+Postgres for the HA production provenance ledger; C SQLite (<code>rusqlite</code>) retained behind a benchmark-only feature; <code>foundationdb</code> optional and phase-gated; <code>pgvector</code> optional, never the primary vector store. All implement <code>MemoryStore</code> / <code>LedgerStore</code> (see <a href="02-memory.html">02-memory.md</a>, <a href="10-cold-compare.html">10-cold-compare.md</a>).</p>
 <hr />
 <h2 id="10-service-transport">10. Service &amp; transport<a class="headerlink" href="#10-service-transport" title="Permanent link">#</a></h2>
 <p>The service mesh and async substrate. The canon locks these as mature, low-risk infrastructure; included for completeness and because everything above assumes them.</p>

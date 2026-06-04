@@ -116,9 +116,10 @@ async fn main() -> anyhow::Result<()> {
     let tools = RmcpToolHost::connect_loopback().await?;
     let model = OpenAiModel::new(&llm_url, "local", &chat_model);
 
-    // Ledger seam (provenance/audit): pick the SQLite backend at runtime so we
-    // can A/B C SQLite (rusqlite) vs pure-Rust SQLite (turso) under bulk load.
-    let ledger_kind = env_or("ONCORA_LEDGER", "sqlite-c");
+    // Ledger seam (provenance/audit): default to pure-Rust SQLite (turso) —
+    // the chosen backend; `sqlite-c` (rusqlite) is retained only to reproduce
+    // the C-vs-Rust comparison (see docs/10-cold-compare.md).
+    let ledger_kind = env_or("ONCORA_LEDGER", "sqlite-rust");
     let ledger_path = env_or("ONCORA_LEDGER_PATH", "/tmp/oncora-ledger.db");
     let ledger: Arc<dyn LedgerStore> = match ledger_kind.as_str() {
         "sqlite-rust" => Arc::new(SqliteRustLedger::open(&ledger_path).await?),
