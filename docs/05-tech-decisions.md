@@ -41,6 +41,8 @@ The canon mandates on-prem-first, cloud opt-in only. Our default deployment talk
 
 **Decision.** `async-openai` is the default provider pointed at on-prem vLLM/TGI; `async-anthropic` is a registered-but-disabled provider for the cloud path; `reqwest` is the documented fallback. All three are concrete impls of `ModelProvider` in `oncora-agents`. See the trust-boundary note in [01-architecture.md](01-architecture.md).
 
+> **Implemented + verified live.** `oncora-agents` ships `OpenAiModel` (`async-openai` 0.40) behind `ModelProvider` under `--features openai`, with `temperature = 0` for reproducibility. Verified end to end against a real local model: Ollama serving `qwen2.5:0.5b`, the full agent loop returning genuine model output ("Yes, EGFR is indeed considered a driver gene in NSCLC …"), confidence 0.855, verdict accept, citations [PMID:0001, PMID:0002]. Build/lint runs in CI; the live run is on-demand (needs an LLM server + model pull). Note async-openai 0.40 is heavily feature-gated — `chat-completion` (pulls `_api`) + a TLS feature are required, and chat types live under `async_openai::types::chat`.
+
 ---
 
 ## 3. Local / edge inference

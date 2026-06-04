@@ -73,6 +73,18 @@ ONCORA_QDRANT_URL=http://127.0.0.1:6334 \
 # confidence: 0.935 · verdict: accept · citations: [PMID:0001, PMID:0002]
 ```
 
+And the `ModelProvider` seam swaps the deterministic stub for **real LLM inference** via any
+OpenAI-compatible endpoint (Ollama, vLLM, TGI) — `temperature 0` keeps runs reproducible:
+
+```bash
+docker run -d -p 11434:11434 ollama/ollama
+docker exec <id> ollama pull qwen2.5:0.5b
+ONCORA_OPENAI_URL=http://127.0.0.1:11434/v1 ONCORA_OPENAI_MODEL=qwen2.5:0.5b \
+  cargo test -p oncora-agents --features openai -- --nocapture
+# answer: "Yes, EGFR is indeed considered a driver gene in NSCLC ..." (real model output)
+# confidence: 0.855 · verdict: accept · model: openai/qwen2.5:0.5b@live · citations: [PMID:0001, PMID:0002]
+```
+
 The `oncora-*` crates wire together behind the provider trait boundaries in
 `oncora-core` (`ModelProvider`, `VectorStore`, `GraphStore`, `MemoryStore`, `ToolHost`,
 `Calibrator`, `Verifier`, `ArtifactStore`, `EmbeddingProvider`). The walking skeleton ships

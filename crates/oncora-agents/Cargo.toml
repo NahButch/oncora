@@ -11,6 +11,8 @@ repository.workspace = true
 default = []
 # Run the agent loop against a real qdrant-backed VectorStore (E2E test).
 qdrant = ["oncora-retrieval/qdrant"]
+# Real LLM inference via an OpenAI-compatible endpoint (Ollama, vLLM, TGI).
+openai = ["dep:async-openai"]
 
 [dependencies]
 oncora-core.workspace = true
@@ -25,6 +27,13 @@ async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
+
+# async-openai 0.40 is heavily feature-gated: `chat-completion` pulls the
+# client/config/chat types (via `_api`); `rustls` wires reqwest's TLS backend.
+async-openai = { version = "0.40", default-features = false, features = [
+    "chat-completion",
+    "rustls",
+], optional = true }
 
 [dev-dependencies]
 tokio.workspace = true

@@ -13,6 +13,9 @@
 
 pub mod model;
 
+#[cfg(feature = "openai")]
+pub use model::OpenAiModel;
+
 use std::sync::Arc;
 
 use oncora_artifacts::InMemoryArtifactStore;
