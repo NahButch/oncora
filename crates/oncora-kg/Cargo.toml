@@ -7,10 +7,20 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+# Real graph backend via Oxigraph (RDF quad store). `default-features = false`
+# keeps it a pure-Rust in-memory store (the optional `rocksdb` feature is the
+# only native dependency), so there is no `links` clash with the ledger's
+# C-SQLite. See the note in docs/05 on why cozo is deferred here.
+oxigraph = ["dep:oxigraph"]
+
 [dependencies]
 oncora-core.workspace = true
 serde.workspace = true
 async-trait.workspace = true
+
+oxigraph = { version = "0.5", default-features = false, optional = true }
 
 [dev-dependencies]
 tokio.workspace = true

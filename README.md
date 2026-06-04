@@ -46,6 +46,13 @@ trait — verified by an in-process loopback test:
 cargo test -p oncora-mcp-host --features rmcp                # MCP server + client loopback
 ```
 
+The `GraphStore` seam swaps the in-memory triple store for a real **Oxigraph** RDF quad store
+(pure-Rust, in-process) — same conformance test, per-edge confidence preserved:
+
+```bash
+cargo test -p oncora-kg --features oxigraph                  # real RDF graph backend
+```
+
 And the `VectorStore` seam swaps the in-memory store for a real **qdrant** cluster
 (`oncora-retrieval --features qdrant`). Its live round-trip test starts qdrant in Docker via
 `testcontainers`, so it needs a Docker daemon (it runs in CI):

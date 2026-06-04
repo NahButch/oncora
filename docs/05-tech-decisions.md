@@ -109,6 +109,8 @@ No single store does both jobs well. A SPARQL triplestore models the ontology na
 
 **Decision.** Dual store: `oxigraph` for the ontology layer (SPARQL over imported RDF), `cozo` for the evidence/assertion graph (Datalog + time-travel + per-edge confidence + vector), `indradb` as the evidence-graph fallback, Jena rejected for the JVM. Both stores are concrete `GraphStore` impls. Full schema and entity/edge model in [04-knowledge-and-data.md](04-knowledge-and-data.md).
 
+> **Implemented (oxigraph) + finding on cozo.** `oncora-kg` ships `OxigraphGraphStore` behind the `GraphStore` trait under `--features oxigraph` (pure-Rust in-memory RDF quad store; `default-features = false` keeps RocksDB out). It passes the same conformance test as `InMemoryGraphStore`, with per-edge **confidence** carried in the quad's named-graph component (`urn:oncora:conf:<v>`). **cozo is deferred**, not for capability but for two concrete build-integration reasons discovered while wiring it: (1) cozo's `minimal` feature pulls native SQLite (`storage-sqlite` → `sqlite3-src`), which **`links`-clashes** with the ledger's `rusqlite` (both claim the native `sqlite3` lib — Cargo forbids two such packages in one workspace); and (2) the only way to get the in-memory engine without SQLite (`graph-algo`) pulls `graph_builder 0.4.1`, which does not compile against current `rayon`. Re-evaluate cozo when these upstream issues resolve (newer cozo with a true mem-only feature, or running cozo in its own process behind the trait). The `GraphStore` seam means this swap costs nothing downstream.
+
 ---
 
 ## 7. Omics & tabular analytics
