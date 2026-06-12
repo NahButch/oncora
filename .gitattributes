@@ -1,0 +1,4 @@
+# site/ is rendered output of build/build_site.py (design canon + vendored
+# JS assets). Exclude it from GitHub language stats and collapse it in diffs
+# so the repo reads as the Rust project it is.
+site/** linguist-generated
